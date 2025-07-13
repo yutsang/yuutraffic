@@ -1,6 +1,6 @@
 # 🚌 Traffic ETA - Hong Kong Public Transport Analytics
 
-[![CI/CD Pipeline](https://github.com/YOUR_USERNAME/e-Mobility-analysis/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/YOUR_USERNAME/e-Mobility-analysis/actions/workflows/ci-cd.yml)
+[![CI/CD Pipeline](https://github.com/yutsang/e-Mobility-analysis/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/yutsang/e-Mobility-analysis/actions/workflows/ci-cd.yml)
 [![Powered by Kedro](https://img.shields.io/badge/powered_by-kedro-ffc900?logo=kedro)](https://kedro.org)
 [![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B?logo=streamlit)](https://streamlit.io)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python)](https://www.python.org)
