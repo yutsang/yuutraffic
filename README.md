@@ -1,4 +1,4 @@
-# 🚌 Traffic ETA - Hong Kong Public Transport Analytics
+# YuuTraffic - Hong Kong Public Transport Analytics
 
 [![CI/CD Pipeline](https://github.com/yutsang/e-Mobility-analysis/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/yutsang/e-Mobility-analysis/actions/workflows/ci-cd.yml)
 [![Powered by Kedro](https://img.shields.io/badge/powered_by-kedro-ffc900?logo=kedro)](https://kedro.org)
@@ -58,7 +58,7 @@
 - **Backup and restore** functionality
 
 ### 🏗️ Production Ready
-- **Kedro-based architecture** with proper pipelines
+- **Simple Python package** with Streamlit UI
 - **Comprehensive configuration** system
 - **CI/CD pipeline** with automated testing
 - **Docker support** for containerized deployment
@@ -76,21 +76,29 @@
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/e-Mobility-analysis.git
-   cd e-Mobility-analysis
+   git clone https://github.com/YOUR_USERNAME/yuutraffic.git
+   cd yuutraffic
    ```
+   *(If you rename the repo on GitHub to `yuutraffic`, update your local remote: `git remote set-url origin https://github.com/YOUR_USERNAME/yuutraffic.git`)*
 
-2. **Install dependencies:**
+2. **Install the package and dependencies:**
    ```bash
-   pip install -r requirements.txt
+   pip install -e .
    ```
 
-3. **Launch the application:**
+3. **_(First run only)_ Create the database if needed:**
    ```bash
-   python src/traffic_eta/run_traffic_eta.py
+   python -m yuutraffic.data_updater --all --db-path data/01_raw/kmb_data.db
    ```
 
-4. **Open in your browser:**
+4. **Launch the application:**
+   ```bash
+   yuutraffic
+   ```
+   Or: `python -m yuutraffic`  
+   Or directly: `streamlit run app.py --server.port 8508`
+
+5. **Open in your browser:**
    ```
    http://localhost:8508
    ```
@@ -138,36 +146,39 @@ Search Examples:
 - **One-Click**: Instantly centers map to Hong Kong coordinates
 
 #### 3. OSM Routing
-- **Real Roads**: Routes follow actual roads using OpenStreetMap
+- **Real Roads**: Routes follow actual roads using OSRM (driving profile for bus routes)
 - **Waypoint Optimization**: Passes through all bus stops in sequence
 - **Fallback**: Direct lines if OSM routing fails
 - **Progress Tracking**: Visual progress bars during route calculation
+
+#### 4. Map Tiles (Faster Loading / Offline)
+- **Default**: CartoDB Positron tiles (faster than OpenStreetMap)
+- **Local tiles**: Download HK tiles for offline use:
+  ```bash
+  python scripts/download_hk_tiles.py --min-zoom 10 --max-zoom 15
+  # Then in another terminal:
+  python -m http.server 8000 --directory data/tiles
+  ```
+  Uncomment `tiles_url` in `conf/base/parameters.yml` and set to `http://localhost:8000/{z}/{x}/{y}.png`
 
 ## 🏗️ Technical Architecture
 
 ### Project Structure
 ```
-traffic-eta/
-├── src/traffic_eta/           # Main application code
-│   ├── pipelines/
-│   │   ├── data_ingestion/    # API connections and data fetching
-│   │   ├── data_processing/   # Route optimization and processing
-│   │   └── web_app/          # Streamlit application logic
-│   ├── traffic_eta_app.py    # Main application entry point
-│   ├── run_traffic_eta.py    # Production launcher
-│   ├── data_updater.py       # Data update utilities
-│   └── database_manager.py   # Database operations
-├── conf/                     # Configuration files
-│   ├── base/
-│   │   └── parameters.yml    # All configurable parameters
-│   └── local/               # Local overrides
-├── data/
-│   ├── 01_raw/              # Raw database files
-│   └── 02_backup/           # Database backups
-├── docs/                    # Documentation
-├── tests/                   # Test suite
-├── .github/workflows/       # CI/CD pipeline
-└── requirements.txt         # Dependencies
+yuutraffic/
+├── app.py                    # Streamlit app (entry point for UI)
+├── src/yuutraffic/           # Package code
+│   ├── config.py             # YAML config loader
+│   ├── database_manager.py  # SQLite database operations
+│   ├── data_updater.py      # KMB API data fetcher
+│   ├── web.py               # Web logic (maps, search, data loading)
+│   ├── launcher.py          # App launcher with pre-flight checks
+│   └── __main__.py          # CLI entry: yuutraffic / python -m yuutraffic
+├── conf/base/
+│   └── parameters.yml       # Configuration
+├── data/01_raw/             # SQLite database (kmb_data.db)
+├── tests/
+└── requirements.txt
 ```
 
 ### Configuration Parameters
@@ -254,66 +265,19 @@ schedule:
   first_run_setup: true
 ```
 
-## 🏗️ Pipeline Organization
+## 🏗️ Architecture
 
-The application follows Kedro's pipeline architecture with clear separation of concerns:
-
-### Data Ingestion Pipeline
-```
-src/traffic_eta/pipelines/data_ingestion/
-├── nodes.py              # ✅ KMB API data fetching
-├── api_nodes.py          # 🔄 API connectors (planned migration)
-├── update_nodes.py       # 🔄 Data update utilities (planned migration)
-└── pipeline.py           # ✅ Pipeline definition
-```
-
-### Data Processing Pipeline
-```
-src/traffic_eta/pipelines/data_processing/
-├── nodes.py              # ✅ Route classification and processing
-├── database_nodes.py     # 🔄 Database management (planned migration)
-├── transform_nodes.py    # ✅ Data transformation utilities
-└── pipeline.py           # ✅ Pipeline definition
-```
-
-### Web App Pipeline
-```
-src/traffic_eta/pipelines/web_app/
-├── nodes.py              # ✅ Core application logic
-├── map_nodes.py          # ✅ Interactive map creation
-├── search_nodes.py       # ✅ Search and filtering
-└── pipeline.py           # ✅ Pipeline definition
-```
-
-### Pipeline Benefits
-- **🎯 Separation of Concerns**: Clear boundaries between data ingestion, processing, and visualization
-- **🔄 Reusability**: Pipeline nodes can be reused across different applications
-- **📊 Kedro Integration**: Built-in data catalog management, pipeline visualization with `kedro viz`
-- **🧪 Testability**: Easy to test individual components and pipeline stages
+- **app.py** – Streamlit UI at project root; imports from `yuutraffic.web`
+- **yuutraffic.web** – Map rendering, search, route loading, config
+- **yuutraffic.data_updater** – Fetches routes/stops from KMB API
+- **yuutraffic.database_manager** – SQLite storage for routes, stops, route_stops
 
 ## 🧪 Testing
 
 ### Run Tests
 ```bash
-# Run all tests
-pytest
-
-# Run specific test suite
-pytest tests/test_web_app.py
-
-# Run with coverage
-pytest --cov=src/traffic_eta --cov-report=html
-```
-
-### Test Database
-The application creates a test database automatically for CI/CD:
-```bash
-# Create test database
-python -c "
-from src.traffic_eta.database_manager import KMBDatabaseManager
-db = KMBDatabaseManager('test_data.db')
-db.create_tables()
-"
+pytest tests/
+python -m pytest tests/test_app.py -v  # With verbose output
 ```
 
 ## 📊 Performance Metrics
@@ -338,7 +302,7 @@ db.create_tables()
    
    # Clear cache and restart
    rm -rf .streamlit
-   python src/traffic_eta/run_traffic_eta.py
+   yuutraffic
    ```
 
 2. **Missing Routes**
@@ -356,9 +320,8 @@ db.create_tables()
 
 ### Debug Mode
 ```bash
-# Enable debug logging
-export DEBUG=true
-python src/traffic_eta/run_traffic_eta.py
+export DEBUG_MODE=true
+yuutraffic
 ```
 
 ## 🚀 Deployment
@@ -369,8 +332,8 @@ python src/traffic_eta/run_traffic_eta.py
 python -m build
 
 # Deploy with Docker
-docker build -t traffic-eta .
-docker run -p 8508:8508 traffic-eta
+docker build -t yuutraffic .
+docker run -p 8508:8508 yuutraffic
 ```
 
 ### CI/CD Pipeline

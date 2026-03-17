@@ -4,31 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 requires-python = ">=3.9"
-name = "traffic_eta"
+name = "yuutraffic"
 readme = "README.md"
 dynamic = ["version"]
 dependencies = [
-    "ipython>=8.10",
-    "jupyterlab>=3.0",
-    "notebook",
-    "kedro[jupyter]~=0.19.14",
-    "kedro-datasets[pandas-csvdataset, pandas-exceldataset, pandas-parquetdataset, spark-sparkdataset, plotly-plotlydataset, plotly-jsondataset, matplotlib-matplotlibwriter]>=3.0",
-    "kedro-viz>=6.7.0",
-    "scikit-learn~=1.5.1",
-    "seaborn~=0.12.1",
-    "setuptools; python_version >= '3.12'",
     "streamlit>=1.28.0",
     "folium>=0.14.0",
     "streamlit-folium>=0.13.0",
     "requests>=2.28.0",
     "pandas>=1.5.0",
-    "sqlite3"
+    "pyyaml>=6.0",
+    "tqdm>=4.65.0",
 ]
 
 [project.scripts]
-"traffic-eta" = "traffic_eta.__main__:main"
-
-[project.entry-points."kedro.hooks"]
+"yuutraffic" = "yuutraffic.__main__:main"
 
 [project.optional-dependencies]
 docs = [
@@ -50,19 +40,11 @@ dev = [
 ]
 
 [tool.setuptools.dynamic]
-version = {attr = "traffic_eta.__version__"}
+version = {attr = "yuutraffic.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
 namespaces = false
-
-[tool.kedro]
-package_name = "traffic_eta"
-project_name = "Traffic ETA"
-kedro_init_version = "0.19.14"
-tools = "['Linting', 'Testing', 'Custom Logging', 'Documentation', 'Data Structure', 'PySpark']"
-example_pipeline = "False"
-source_dir = "src"
 
 [tool.pytest.ini_options]
 addopts = """
@@ -77,12 +59,17 @@ fail_under = 0
 show_missing = true
 exclude_lines = ["pragma: no cover", "raise NotImplementedError"]
 
+[tool.black]
+target-version = ["py39"]
+
 [tool.ruff.format]
 docstring-code-format = true
 
 [tool.ruff]
 line-length = 88
 show-fixes = true
+
+[tool.ruff.lint]
 select = [
     "F",   # Pyflakes
     "W",   # pycodestyle
@@ -92,7 +79,13 @@ select = [
     "PL",  # Pylint
     "T201", # Print Statement
 ]
-ignore = ["E501"]  # Ruff format takes care of line-too-long
+ignore = [
+    "E501",    # Ruff format handles line length
+    "PLC0415", # Lazy/local imports (CLI entrypoints, optional deps)
+    "PLR2004", # Magic values in domain logic
+    "PLR0912", # Too many branches (launcher)
+    "PLR0915", # Too many statements (launcher, precompute)
+]
 
 [tool.isort]
 profile = "black"

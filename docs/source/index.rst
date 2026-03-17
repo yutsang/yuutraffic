@@ -1,9 +1,9 @@
-.. hk_kmb_transport documentation master file, created by sphinx-quickstart.
+.. Traffic ETA documentation master file, created by sphinx-quickstart.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to project hk_kmb_transport's API docs!
-=============================================
+Welcome to Traffic ETA - Hong Kong Public Transport Analytics
+=============================================================
 
 .. toctree::
    :maxdepth: 4

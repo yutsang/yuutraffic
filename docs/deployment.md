@@ -18,7 +18,7 @@ This guide covers how to deploy the Hong Kong KMB Transport application in vario
 1. **Clone the repository:**
    ```bash
    git clone <repository-url>
-   cd e-Mobility-analysis/hk-kmb-transport
+   cd e-Mobility-analysis
    ```
 
 2. **Create virtual environment:**
@@ -34,7 +34,7 @@ This guide covers how to deploy the Hong Kong KMB Transport application in vario
 
 4. **Launch the application:**
    ```bash
-   python src/hk_kmb_transport/run_production.py
+   python src/yuutraffic/run_yuutraffic.py
    ```
 
 5. **Access the application:**
@@ -51,7 +51,7 @@ For development with hot reloading:
 export STREAMLIT_ENV=development
 
 # Run with auto-reload
-streamlit run src/hk_kmb_transport/kmb_app_production.py --server.port 8508 --server.runOnSave true
+streamlit run src/yuutraffic/yuutraffic_app.py --server.port 8508 --server.runOnSave true
 ```
 
 ## Production Deployment
@@ -84,7 +84,7 @@ streamlit run src/hk_kmb_transport/kmb_app_production.py --server.port 8508 --se
 2. **Clone and setup:**
    ```bash
    git clone <repository-url>
-   cd e-Mobility-analysis/hk-kmb-transport
+   cd e-Mobility-analysis
    
    # Create virtual environment
    python3 -m venv venv
@@ -107,9 +107,9 @@ streamlit run src/hk_kmb_transport/kmb_app_production.py --server.port 8508 --se
    [Service]
    Type=simple
    User=ubuntu
-   WorkingDirectory=/home/ubuntu/e-Mobility-analysis/hk-kmb-transport
-   Environment=PATH=/home/ubuntu/e-Mobility-analysis/hk-kmb-transport/venv/bin
-   ExecStart=/home/ubuntu/e-Mobility-analysis/hk-kmb-transport/venv/bin/python src/hk_kmb_transport/run_production.py
+   WorkingDirectory=/home/ubuntu/e-Mobility-analysis
+   Environment=PATH=/home/ubuntu/e-Mobility-analysis/venv/bin
+   ExecStart=/home/ubuntu/e-Mobility-analysis/venv/bin/python src/yuutraffic/run_yuutraffic.py
    Restart=always
    
    [Install]
@@ -176,7 +176,7 @@ streamlit run src/hk_kmb_transport/kmb_app_production.py --server.port 8508 --se
    EXPOSE 8508
    
    # Run the application
-   CMD ["python", "src/hk_kmb_transport/run_production.py"]
+   CMD ["python", "src/yuutraffic/run_yuutraffic.py"]
    ```
 
 2. **Create docker-compose.yml:**
@@ -205,7 +205,7 @@ streamlit run src/hk_kmb_transport/kmb_app_production.py --server.port 8508 --se
 
 1. **Create Procfile:**
    ```
-   web: python src/hk_kmb_transport/run_production.py
+   web: python src/yuutraffic/run_yuutraffic.py
    ```
 
 2. **Create runtime.txt:**
@@ -370,7 +370,7 @@ ROUTING_TIMEOUT=10
    cp data/01_raw/kmb_data.db data/01_raw/kmb_data_backup.db
    
    # Update data
-   python src/hk_kmb_transport/data_updater.py --all
+   python -m yuutraffic.pipelines.data_management.data_updater --all --db-path data/01_raw/kmb_data.db
    
    # Restart application
    sudo systemctl restart kmb-transport
