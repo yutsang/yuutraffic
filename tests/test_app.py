@@ -13,7 +13,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 def test_import_app():
     """Test that the app can be imported successfully."""
     try:
-        from traffic_eta.traffic_eta_app import create_route_options
+        from yuutraffic.web import create_route_options
 
         assert callable(create_route_options)
     except ImportError as e:
@@ -22,7 +22,7 @@ def test_import_app():
 
 def test_create_route_options():
     """Test the create_route_options function."""
-    from traffic_eta.traffic_eta_app import create_route_options
+    from yuutraffic.web import create_route_options
 
     # Create sample data
     sample_data = pd.DataFrame(
@@ -54,11 +54,11 @@ def test_app_imports():
         pytest.fail(f"Required dependency missing: {e}")
 
 
-def test_pipeline_imports():
-    """Test that pipeline modules can be imported."""
+def test_web_imports():
+    """Test that web module can be imported."""
     try:
-        from traffic_eta.pipelines.web_app.nodes import load_traffic_data
+        from yuutraffic.web import load_traffic_data
 
         assert callable(load_traffic_data)
     except ImportError as e:
-        pytest.fail(f"Failed to import pipeline nodes: {e}")
+        pytest.fail(f"Failed to import web module: {e}")

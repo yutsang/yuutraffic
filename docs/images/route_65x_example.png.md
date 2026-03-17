@@ -6,7 +6,7 @@ This is a placeholder for the Route 65X example screenshot.
 
 1. Launch the application:
    ```bash
-   python src/hk_kmb_transport/run_production.py
+   yuutraffic
    ```
 
 2. Open http://localhost:8508 in your browser

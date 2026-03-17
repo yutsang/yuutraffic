@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 
-# hk_kmb_transport documentation build
+# Traffic ETA documentation build
 # configuration file, created by sphinx-quickstart.
 #
 # This file is execfile()d with the current directory set to its
@@ -19,12 +19,12 @@
 #
 import re
 
-from hk_kmb_transport import __version__ as release
+from yuutraffic import __version__ as release
 from kedro.framework.cli.utils import find_stylesheets
 
 # -- Project information -----------------------------------------------------
 
-project = "hk_kmb_transport"
+project = "yuutraffic"
 author = "Kedro"
 
 # The short X.Y version.
@@ -120,7 +120,7 @@ html_show_copyright = False
 # -- Options for HTMLHelp output ---------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = "hk_kmb_transportdoc"
+htmlhelp_basename = "yuutraffic_doc"
 
 # -- Options for LaTeX output ------------------------------------------------
 
@@ -148,8 +148,8 @@ latex_elements = {
 latex_documents = [
     (
         master_doc,
-        "hk_kmb_transport.tex",
-        "hk_kmb_transport Documentation",
+        "yuutraffic.tex",
+        "yuutraffic Documentation",
         "Kedro",
         "manual",
     )
@@ -162,8 +162,8 @@ latex_documents = [
 man_pages = [
     (
         master_doc,
-        "hk_kmb_transport",
-        "hk_kmb_transport Documentation",
+        "yuutraffic",
+        "yuutraffic Documentation",
         [author],
         1,
     )
@@ -177,11 +177,11 @@ man_pages = [
 texinfo_documents = [
     (
         master_doc,
-        "hk_kmb_transport",
-        "hk_kmb_transport Documentation",
+        "yuutraffic",
+        "yuutraffic Documentation",
         author,
-        "hk_kmb_transport",
-        "Project hk_kmb_transport codebase.",
+        "yuutraffic",
+        "Project yuutraffic codebase.",
         "Data-Science",
     )
 ]

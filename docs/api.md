@@ -8,7 +8,7 @@ The KMB Transport application provides internal APIs for route data access and p
 
 ### Data Loading
 
-#### `load_kmb_data()`
+#### `load_traffic_data()`
 Loads KMB route and stop data from the SQLite database.
 
 **Returns:**
@@ -16,9 +16,9 @@ Loads KMB route and stop data from the SQLite database.
 
 **Example:**
 ```python
-from src.hk_kmb_transport.pipelines.web_app.nodes import load_kmb_data
+from src.yuutraffic.pipelines.web_app.nodes import load_traffic_data
 
-routes_df, stops_df = load_kmb_data()
+routes_df, stops_df = load_traffic_data()
 print(f"Loaded {len(routes_df)} routes and {len(stops_df)} stops")
 ```
 
@@ -35,7 +35,7 @@ Retrieves stops for a specific route with direction information.
 
 **Example:**
 ```python
-from src.hk_kmb_transport.pipelines.web_app.nodes import get_route_stops_with_directions
+from src.yuutraffic.pipelines.web_app.nodes import get_route_stops_with_directions
 
 stops = get_route_stops_with_directions("65X")
 print(f"Route 65X has {len(stops)} stops")
@@ -52,7 +52,7 @@ Sorts routes naturally (1, 2, 3, 10, 11, 101...).
 
 **Example:**
 ```python
-from src.hk_kmb_transport.pipelines.web_app.nodes import get_sorted_routes
+from src.yuutraffic.pipelines.web_app.nodes import get_sorted_routes
 
 sorted_routes = get_sorted_routes(routes_df)
 print(sorted_routes['route_id'].head(10).tolist())
@@ -61,7 +61,7 @@ print(sorted_routes['route_id'].head(10).tolist())
 
 ### Map Visualization
 
-#### `create_route_map(route_stops, selected_stop_id=None, direction=1)`
+#### `create_enhanced_route_map(route_stops, selected_stop_id=None, direction=1)`
 Creates an interactive Folium map with route visualization.
 
 **Parameters:**
@@ -74,10 +74,10 @@ Creates an interactive Folium map with route visualization.
 
 **Example:**
 ```python
-from src.hk_kmb_transport.pipelines.web_app.nodes import create_route_map
+from src.yuutraffic.pipelines.web_app.nodes import create_enhanced_route_map
 
 route_stops = get_route_stops_with_directions("65X")
-map_obj = create_route_map(route_stops, direction=1)
+map_obj = create_enhanced_route_map(route_stops, direction=1)
 ```
 
 ## Database Schema
@@ -172,7 +172,7 @@ pytest tests/test_api.py
 
 # Test with specific route
 python -c "
-from src.hk_kmb_transport.pipelines.web_app.nodes import get_route_stops_with_directions
+from src.yuutraffic.pipelines.web_app.nodes import get_route_stops_with_directions
 result = get_route_stops_with_directions('65X')
 assert not result.empty, 'Route 65X should have stops'
 print('✅ Route 65X test passed')
@@ -182,7 +182,7 @@ print('✅ Route 65X test passed')
 ### Integration Tests
 ```bash
 # Test full workflow
-python src/hk_kmb_transport/test_production_features.py
+pytest tests/
 ```
 
 ## Examples
@@ -190,7 +190,7 @@ python src/hk_kmb_transport/test_production_features.py
 ### Get Route Information
 ```python
 # Load all routes
-routes_df, stops_df = load_kmb_data()
+routes_df, stops_df = load_traffic_data()
 
 # Find specific route
 route_65x = routes_df[routes_df['route_id'] == '65X']
@@ -218,13 +218,13 @@ matching_routes = routes_df[mask]
 ### Create Custom Map
 ```python
 import folium
-from src.hk_kmb_transport.pipelines.web_app.nodes import create_route_map
+from src.yuutraffic.pipelines.web_app.nodes import create_enhanced_route_map
 
 # Get route data
 route_stops = get_route_stops_with_directions("65X")
 
 # Create map
-map_obj = create_route_map(route_stops, direction=1)
+map_obj = create_enhanced_route_map(route_stops, direction=1)
 
 # Save to file
 map_obj.save("route_65x_map.html")
@@ -234,5 +234,5 @@ map_obj.save("route_65x_map.html")
 
 For API support and questions:
 - Check the troubleshooting guide in the main README
-- Review the source code in `src/hk_kmb_transport/pipelines/web_app/nodes.py`
+- Review the source code in `src/yuutraffic/pipelines/web_app/nodes.py`
 - Create an issue on GitHub with specific error messages 

@@ -105,7 +105,7 @@ jobs:
         export DATABASE_PATH=data/01_raw/kmb_data.db
         
         # Run tests with coverage
-        pytest tests/ --cov=src/traffic_eta --cov-report=xml --cov-report=html --tb=short -v || echo "Some tests may fail in CI environment"
+        pytest tests/ --cov=src/yuutraffic --cov-report=xml --cov-report=html --tb=short -v || echo "Some tests may fail in CI environment"
     
     - name: Upload coverage reports
       uses: codecov/codecov-action@v3
@@ -142,10 +142,11 @@ jobs:
     
     - name: Create deployment package
       run: |
-        mkdir -p dist/traffic_eta
+        mkdir -p dist/yuutraffic
         
         # Copy main application files
-        cp -r src/traffic_eta/* dist/traffic_eta/
+        cp -r src/yuutraffic/* dist/yuutraffic/
+        cp app.py dist/
         cp -r conf/ dist/
         cp -r data/ dist/ 2>/dev/null || mkdir -p dist/data/01_raw
         
@@ -155,12 +156,12 @@ jobs:
         cp pyproject.toml dist/
         
         # Create startup script
-        cat > dist/start_traffic_eta.sh << 'EOF'
+        cat > dist/start_yuutraffic.sh << 'EOF'
         #!/bin/bash
-        echo "Starting Traffic ETA Application..."
-        python traffic_eta/run_traffic_eta.py
+        echo "Starting YuuTraffic..."
+        yuutraffic
         EOF
-        chmod +x dist/start_traffic_eta.sh
+        chmod +x dist/start_yuutraffic.sh
         
         # Create Docker files
         cat > dist/Dockerfile << 'EOF'
@@ -176,10 +177,11 @@ jobs:
         RUN pip install --no-cache-dir -r requirements.txt
         
         COPY . .
+        RUN pip install -e .
         
         EXPOSE 8508
         
-        CMD ["python", "traffic_eta/run_traffic_eta.py"]
+        CMD ["yuutraffic"]
         EOF
     
     - name: Upload build artifacts
@@ -253,6 +255,8 @@ jobs:
         echo "Production URL: https://traffic-eta.streamlit.app"
     
     - name: Create GitHub Release
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         gh release create v${{ github.run_number }} \
           --title "Traffic ETA v${{ github.run_number }}" \

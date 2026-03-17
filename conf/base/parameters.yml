@@ -11,6 +11,7 @@ app:
 # API Endpoints and Links
 api:
   kmb_base_url: "https://data.etabus.gov.hk/v1/transport/kmb"
+  # driving = buses follow roads (walking used pedestrian paths, wrong for Choi Hung–Diamond Hill etc.)
   osm_routing_url: "http://router.project-osrm.org/route/v1/driving"
   endpoints:
     routes: "/route"
@@ -27,6 +28,9 @@ database:
   connection_timeout: 30
   enable_foreign_keys: true
 
+# Precomputed route geometry cache (run "yuutraffic precompute" to build with driving profile)
+route_geometry_cache: "data/02_intermediate/route_geometry_cache.json"
+
 # Scheduling Configuration
 schedule:
   daily_update:
@@ -39,6 +43,9 @@ schedule:
   update_route_stops: true
 
 # Map Configuration
+# tiles: "OpenStreetMap" | "CartoDB positron" (faster) | "CartoDB dark_matter"
+# tiles_url: set to use local tiles, e.g. "http://localhost:8000/{z}/{x}/{y}.png"
+#   Run: python -m http.server 8000 --directory data/tiles  (after downloading HK tiles)
 map:
   center:
     lat: 22.3193
@@ -48,17 +55,19 @@ map:
     enabled: true
     route_zoom: 14
     stop_zoom: 16
-  tiles: "OpenStreetMap"
+  tiles: "OpenStreetMap"  # Colorful; use "CartoDB positron" for faster/lighter
+  # tiles_url: "http://localhost:8000/{z}/{x}/{y}.png"  # Uncomment for local tiles (run scripts/download_hk_tiles.py first)
   width: 1200
   height: 600
 
-# OSM Routing Configuration
+# OSM Routing Configuration - routes follow actual streets (walking profile avoids highway detours)
 osm:
-  max_waypoints: 25
-  timeout: 10
+  use_osm_routing: true  # Follow roads; false = straight lines between stops
+  max_waypoints: 15
+  timeout: 10  # Lower timeout for precompute; OSRM public server can be slow
   fallback_to_direct: true
   retry_attempts: 2
-  segment_size: 20  # For large routes
+  segment_size: 15  # Fewer waypoints = faster OSRM response
 
 # Route Types Configuration
 route_types:
@@ -84,6 +93,10 @@ cache:
   enable_map_cache: true
   cache_size_limit: 1000
 
+# ETA refresh (KMB API updates every 1 minute per data.gov.hk)
+eta:
+  refresh_interval_seconds: 60
+
 # UI Configuration
 ui:
   theme_adaptive: true
@@ -102,7 +115,7 @@ performance:
 # Logging Configuration
 logging:
   level: "INFO"
-  file: "logs/traffic_eta.log"
+  file: "logs/yuutraffic.log"
   max_size: "10MB"
   backup_count: 5
 
