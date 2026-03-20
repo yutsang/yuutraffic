@@ -615,9 +615,7 @@ def _calculate_map_bounds(
                         else (
                             14
                             if mr > ZOOM_CLOSE
-                            else 15
-                            if mr > ZOOM_VERY_CLOSE
-                            else 16
+                            else 15 if mr > ZOOM_VERY_CLOSE else 16
                         )
                     )
                 )
@@ -648,8 +646,7 @@ def _add_map_controls(
             f"align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.2);"
             f'font-weight:bold;">📍 {centre_label}</div>'
         )
-        scripts.append(
-            f"""
+        scripts.append(f"""
         (function() {{
             var btn = document.querySelector('[data-center-route]');
             if (btn) btn.onclick = function() {{
@@ -665,8 +662,7 @@ def _add_map_controls(
                 }}
             }};
         }})();
-        """
-        )
+        """)
         top += 44
     # Reset Map button
     controls_html.append(
@@ -675,8 +671,7 @@ def _add_map_controls(
         f"align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.2);"
         f'font-weight:bold;">🔄 Reset Map</div>'
     )
-    scripts.append(
-        f"""
+    scripts.append(f"""
     (function() {{
         var btn = document.querySelector('[data-reset-map]');
         if (btn) btn.onclick = function() {{
@@ -692,8 +687,7 @@ def _add_map_controls(
             }}
         }};
     }})();
-    """
-    )
+    """)
     combined = "".join(controls_html) + "<script>" + "".join(scripts) + "</script>"
     m.get_root().html.add_child(folium.Element(combined))
     LocateControl(
