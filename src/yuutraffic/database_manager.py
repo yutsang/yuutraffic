@@ -31,8 +31,7 @@ class KMBDatabaseManager:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS routes (
                     route_id TEXT PRIMARY KEY,
                     route_name TEXT,
@@ -45,16 +44,14 @@ class KMBDatabaseManager:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """
-            )
+            """)
             for col in ["origin_tc", "destination_tc"]:
                 try:
                     cursor.execute(f"ALTER TABLE routes ADD COLUMN {col} TEXT")
                 except sqlite3.OperationalError:
                     pass
 
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS stops (
                     stop_id TEXT PRIMARY KEY,
                     stop_name_en TEXT,
@@ -65,15 +62,13 @@ class KMBDatabaseManager:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """
-            )
+            """)
             try:
                 cursor.execute("ALTER TABLE stops ADD COLUMN stop_name_tc TEXT")
             except sqlite3.OperationalError:
                 pass
 
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS route_stops (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     route_id TEXT,
@@ -87,11 +82,9 @@ class KMBDatabaseManager:
                     FOREIGN KEY (stop_id) REFERENCES stops (stop_id),
                     UNIQUE(route_id, stop_id, direction, service_type)
                 )
-            """
-            )
+            """)
 
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS data_updates (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     update_type TEXT,
@@ -100,8 +93,7 @@ class KMBDatabaseManager:
                     error_message TEXT,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """
-            )
+            """)
 
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_routes_route_id ON routes(route_id)"
