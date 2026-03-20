@@ -7,8 +7,9 @@ import os
 import re
 import sqlite3
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Optional
+from typing import Any
 
 import folium
 import pandas as pd
@@ -420,9 +421,9 @@ def _seg_key(seg: list[tuple[float, float]]) -> tuple:
 def get_osm_route_with_waypoints(
     stops_coords: list[tuple[float, float]],
     max_waypoints: int = MAX_WAYPOINTS,
-    segment_cache: Optional[dict] = None,
-    segment_lock: Optional[Any] = None,
-    on_api_call: Optional[Callable[[], None]] = None,
+    segment_cache: dict | None = None,
+    segment_lock: Any | None = None,
+    on_api_call: Callable[[], None] | None = None,
 ) -> list[list[float]]:
     """
     Build route geometry using OSRM. Uses batched waypoints. When segment_cache
@@ -484,7 +485,7 @@ def get_osm_route_with_waypoints(
 
 def get_single_osm_route(
     stops_coords: list[tuple[float, float]],
-) -> Optional[list[list[float]]]:
+) -> list[list[float]] | None:
     """Get road-following route from OSRM (driving profile). Falls back to straight line if API fails."""
     import time as _time
 
@@ -549,7 +550,7 @@ def _get_geometry_cache() -> dict:
 
 
 def get_route_geometry_with_progress(
-    route_stops: pd.DataFrame, direction: int, route_id: Optional[str] = None
+    route_stops: pd.DataFrame, direction: int, route_id: str | None = None
 ) -> list[list[float]]:
     dir_stops = route_stops[route_stops["direction"] == direction].sort_values(
         "sequence"
@@ -595,7 +596,7 @@ def get_route_geometry_with_progress(
 
 
 def _calculate_map_bounds(
-    route_stops: pd.DataFrame, direction: int, selected_stop_id: Optional[str] = None
+    route_stops: pd.DataFrame, direction: int, selected_stop_id: str | None = None
 ) -> tuple[float, float, int]:
     dir_stops = route_stops[route_stops["direction"] == direction]
     if not dir_stops.empty:
@@ -628,7 +629,7 @@ def _calculate_map_bounds(
 
 def _add_map_controls(
     m: folium.Map,
-    route_center: Optional[tuple[float, float, int]] = None,
+    route_center: tuple[float, float, int] | None = None,
     lang: str = "en",
 ) -> None:
     """Add Reset Map, Center on Route, and Locate Me buttons to the map."""
@@ -698,9 +699,9 @@ def _add_map_controls(
 
 def create_enhanced_route_map(
     route_stops: pd.DataFrame,
-    selected_stop_id: Optional[str] = None,
+    selected_stop_id: str | None = None,
     direction: int = 1,
-    eta_dict: Optional[dict[str, list[str]]] = None,
+    eta_dict: dict[str, list[str]] | None = None,
     lang: str = "en",
 ) -> folium.Map:
     eta_dict = eta_dict or {}

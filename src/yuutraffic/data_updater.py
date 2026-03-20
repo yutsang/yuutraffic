@@ -7,7 +7,7 @@ import argparse
 import logging
 import sys
 import time
-from typing import Any, Optional
+from typing import Any
 
 import requests
 
@@ -142,7 +142,7 @@ class KMBDataUpdater:
             self.db_manager.log_update("stops", 0, "error", str(e))
             return False
 
-    def update_route_stops(self, max_routes: Optional[int] = None) -> bool:
+    def update_route_stops(self, max_routes: int | None = None) -> bool:
         try:
             routes_df = self.db_manager.get_routes()
             if routes_df.empty:
@@ -166,7 +166,7 @@ class KMBDataUpdater:
             self.db_manager.log_update("route_stops", 0, "error", str(e))
             return False
 
-    def update_all_data(self, max_routes: Optional[int] = None) -> bool:
+    def update_all_data(self, max_routes: int | None = None) -> bool:
         success = True
         if not self.update_routes():
             success = False

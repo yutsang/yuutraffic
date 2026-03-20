@@ -6,7 +6,7 @@ Manages SQLite database for KMB/LWB bus routes, stops, and route-stops data
 import logging
 import sqlite3
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -265,7 +265,7 @@ class KMBDatabaseManager:
         update_type: str,
         records_updated: int,
         status: str,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ):
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(

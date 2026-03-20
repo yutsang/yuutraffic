@@ -1,4 +1,4 @@
-name: Traffic ETA CI/CD Pipeline
+name: YuuTraffic v1.0 — KMB / CityBus CI/CD
 
 on:
   push:
@@ -12,8 +12,9 @@ permissions:
   security-events: write
 
 env:
-  PYTHON_VERSION: '3.9'
-  NODE_VERSION: '18'
+  # isort 8.x requires Python >=3.10; keep CI aligned with app runtime
+  PYTHON_VERSION: '3.11'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   test:
@@ -21,15 +22,15 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ env.PYTHON_VERSION }}
     
     - name: Cache pip dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v5
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
@@ -45,8 +46,6 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest pytest-cov pytest-mock \
-          "black==26.3.1" "isort==8.0.1" "ruff==0.15.7"
     
     - name: Create test database
       run: |
@@ -109,12 +108,12 @@ jobs:
         pytest tests/ --cov=src/yuutraffic --cov-report=xml --cov-report=html --tb=short -v || echo "Some tests may fail in CI environment"
     
     - name: Upload coverage reports
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v5
       if: always()
       with:
         file: ./coverage.xml
         flags: unittests
-        name: traffic-eta-coverage
+        name: yuutraffic-coverage
         fail_ci_if_error: false
 
   build:
@@ -124,10 +123,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ env.PYTHON_VERSION }}
     
@@ -186,9 +185,9 @@ jobs:
         EOF
     
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
-        name: traffic-eta-app
+        name: yuutraffic-app
         path: dist/
         retention-days: 30
 
@@ -198,10 +197,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ env.PYTHON_VERSION }}
     
@@ -225,14 +224,14 @@ jobs:
     
     steps:
     - name: Download build artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
-        name: traffic-eta-app
+        name: yuutraffic-app
         path: dist/
     
     - name: Deploy to staging
       run: |
-        echo "Deploying to staging environment..."
+        echo "Deploying YuuTraffic staging..."
         echo "Staging URL: https://traffic-eta-staging.streamlit.app"
 
   deploy-production:
@@ -243,16 +242,16 @@ jobs:
     
     steps:
     - name: Download build artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
-        name: traffic-eta-app
+        name: yuutraffic-app
         path: dist/
     
     - name: Deploy to production
       env:
         STREAMLIT_SHARING_TOKEN: ${{ secrets.STREAMLIT_SHARING_TOKEN }}
       run: |
-        echo "Deploying to production environment..."
+        echo "Deploying YuuTraffic production (KMB / CityBus)..."
         echo "Production URL: https://traffic-eta.streamlit.app"
     
     - name: Create GitHub Release
@@ -265,28 +264,24 @@ jobs:
           echo "Release $TAG already exists, skipping create."
         else
           gh release create "$TAG" \
-            --title "Traffic ETA ${{ github.run_number }}" \
-            --notes "## Traffic ETA Release ${{ github.run_number }}
+            --title "YuuTraffic v1.0 — KMB / CityBus (build ${{ github.run_number }})" \
+            --notes "## YuuTraffic v1.0 — KMB / CityBus — release ${{ github.run_number }}
         
         ### 🚌 Features
-        - Complete Hong Kong KMB route coverage
+        - Hong Kong KMB (and CityBus where applicable) route coverage
         - Dual direction search with depot names
         - Route type classification (Express, Night, Circular, etc.)
         - Interactive maps with OSM routing
         - Auto-zoom and center controls
         - Enhanced search and filtering
         
-        ### 🔧 Technical Improvements
-        - Kedro-based architecture
-        - Comprehensive parameter configuration
-        - First-run setup and daily updates
-        - Production-ready deployment
+        ### 🔧 Technical
+        - Streamlit app + SQLite / precompute pipeline
+        - Parameter-driven configuration
+        - First-run setup and scheduled updates
         
-        ### 📊 Statistics
-        - Routes: 788 (100% coverage)
-        - Route Types: Regular, Express, Night, Circular, Airport, Peak, Special
-        - Interactive Maps: OSM routing with waypoints
-        - Search: Dual direction with depot names" \
+        ### 📊 Coverage
+        - Broad KMB route coverage; maps and ETAs from live APIs where available" \
             --repo "${{ github.repository }}"
         fi
 
@@ -299,7 +294,7 @@ jobs:
     - name: Notify deployment status
       run: |
         if [ "${{ needs.deploy-production.result }}" == "success" ]; then
-          echo "✅ Traffic ETA deployed successfully to production"
+          echo "✅ YuuTraffic (KMB / CityBus) production job finished successfully"
         else
-          echo "❌ Traffic ETA deployment failed"
-        fi 
+          echo "❌ YuuTraffic production deployment job failed or was skipped"
+        fi
