@@ -50,7 +50,7 @@ def _ensure_schema_columns():
             cursor = conn.cursor()
             cursor.execute("PRAGMA table_info(routes)")
             route_cols = {row[1] for row in cursor.fetchall()}
-            for col in ["origin_tc", "destination_tc"]:
+            for col in ["origin_tc", "destination_tc", "provider_route_id"]:
                 if col not in route_cols:
                     cursor.execute(f"ALTER TABLE routes ADD COLUMN {col} TEXT")
                     logger.info(f"Added column routes.{col}")
@@ -64,21 +64,119 @@ def _ensure_schema_columns():
         logger.debug(f"Schema migration skipped: {e}")
 
 
+def _infer_route_region(
+    origin: str, destination: str, origin_tc: str, destination_tc: str
+) -> str:
+    """Infer primary region (HKL/KLN/NT) from route endpoints. HKL=HK Island, KLN=Kowloon, NT=New Territories."""
+
+    def _check(s: str) -> tuple[bool, bool, bool]:
+        s = (s or "").upper()
+        hkl = any(
+            x in s
+            for x in (
+                "CENTRAL",
+                "WAN CHAI",
+                "CAUSEWAY BAY",
+                "NORTH POINT",
+                "SHAU KEI WAN",
+                "CHAI WAN",
+                "ABERDEEN",
+                "PEAK",
+                "黎樂",
+                "灣仔",
+                "銅鑼灣",
+                "北角",
+                "筲箕灣",
+                "柴灣",
+            )
+        )
+        kln = any(
+            x in s
+            for x in (
+                "TSIM SHA TSUI",
+                "MONG KOK",
+                "KWUN TONG",
+                "YAU MA TEI",
+                "JORDAN",
+                "SHAM SHUI PO",
+                "CHOI HUNG",
+                "尖沙咀",
+                "旺角",
+                "觀塘",
+                "油麻地",
+                "佐敦",
+                "深水埗",
+            )
+        )
+        nt = any(
+            x in s
+            for x in (
+                "TIN SHUI WAI",
+                "YUEN LONG",
+                "SHA TIN",
+                "TAI PO",
+                "TUEN MUN",
+                "天水圍",
+                "元朗",
+                "沙田",
+                "大埔",
+                "屯門",
+            )
+        )
+        return (hkl, kln, nt)
+
+    o_en, o_tc = (origin or "").upper(), (origin_tc or "")
+    d_en, d_tc = (destination or "").upper(), (destination_tc or "")
+    oh, ok, on = _check(o_en + " " + o_tc)
+    dh, dk, dn = _check(d_en + " " + d_tc)
+    if oh or dh:
+        return "HKL"
+    if ok or dk:
+        return "KLN"
+    if on or dn:
+        return "NT"
+    return "KLN"  # default
+
+
 def load_traffic_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load traffic route and stop data from database."""
     _ensure_schema_columns()
     try:
         with sqlite3.connect(DB_PATH) as conn:
-            routes_query = """
-                SELECT DISTINCT route_id, route_name,
-                    origin_en as origin, destination_en as destination,
-                    COALESCE(origin_tc, '') as origin_tc,
-                    COALESCE(destination_tc, '') as destination_tc,
-                    service_type, company
-                FROM routes ORDER BY route_id
-            """
-            routes_df = pd.read_sql_query(routes_query, conn)
+            try:
+                routes_query = """
+                    SELECT DISTINCT route_key, route_id, route_name,
+                        origin_en as origin, destination_en as destination,
+                        COALESCE(origin_tc, '') as origin_tc,
+                        COALESCE(destination_tc, '') as destination_tc,
+                        service_type, company,
+                        COALESCE(provider_route_id, '') as provider_route_id,
+                        geometry_hash, last_precomputed_at
+                    FROM routes ORDER BY route_key
+                """
+                routes_df = pd.read_sql_query(routes_query, conn)
+            except sqlite3.OperationalError:
+                routes_query = """
+                    SELECT DISTINCT route_id as route_key, route_id, route_name,
+                        origin_en as origin, destination_en as destination,
+                        COALESCE(origin_tc, '') as origin_tc,
+                        COALESCE(destination_tc, '') as destination_tc,
+                        service_type, company,
+                        '' as provider_route_id,
+                        NULL as geometry_hash, NULL as last_precomputed_at
+                    FROM routes ORDER BY route_id
+                """
+                routes_df = pd.read_sql_query(routes_query, conn)
             routes_df["route_type"] = routes_df.apply(classify_route_type, axis=1)
+            routes_df["region"] = routes_df.apply(
+                lambda r: _infer_route_region(
+                    r.get("origin"),
+                    r.get("destination"),
+                    r.get("origin_tc", ""),
+                    r.get("destination_tc", ""),
+                ),
+                axis=1,
+            )
 
             stops_query = """
                 SELECT stop_id, stop_name_en as stop_name,
@@ -87,7 +185,7 @@ def load_traffic_data() -> tuple[pd.DataFrame, pd.DataFrame]:
             """
             stops_df = pd.read_sql_query(stops_query, conn)
             return routes_df, stops_df
-    except Exception as e:
+    except sqlite3.OperationalError as e:
         err_msg = str(e).lower()
         if (
             "no such column" in err_msg
@@ -99,13 +197,22 @@ def load_traffic_data() -> tuple[pd.DataFrame, pd.DataFrame]:
             try:
                 with sqlite3.connect(DB_PATH) as conn:
                     routes_df = pd.read_sql_query(
-                        "SELECT DISTINCT route_id, route_name, origin_en as origin, destination_en as destination, "
+                        "SELECT DISTINCT route_id as route_key, route_id, route_name, origin_en as origin, destination_en as destination, "
                         "COALESCE(origin_tc,'') as origin_tc, COALESCE(destination_tc,'') as destination_tc, "
-                        "service_type, company FROM routes ORDER BY route_id",
+                        "service_type, company, geometry_hash, last_precomputed_at FROM routes ORDER BY route_id",
                         conn,
                     )
                     routes_df["route_type"] = routes_df.apply(
                         classify_route_type, axis=1
+                    )
+                    routes_df["region"] = routes_df.apply(
+                        lambda r: _infer_route_region(
+                            r.get("origin"),
+                            r.get("destination"),
+                            r.get("origin_tc", ""),
+                            r.get("destination_tc", ""),
+                        ),
+                        axis=1,
                     )
                     stops_df = pd.read_sql_query(
                         "SELECT stop_id, stop_name_en as stop_name, COALESCE(stop_name_tc,'') as stop_name_tc, "
@@ -117,17 +224,18 @@ def load_traffic_data() -> tuple[pd.DataFrame, pd.DataFrame]:
                 pass
             with sqlite3.connect(DB_PATH) as conn:
                 routes_df = pd.read_sql_query(
-                    "SELECT DISTINCT route_id, route_name, origin_en as origin, destination_en as destination, "
-                    "'' as origin_tc, '' as destination_tc, service_type, company FROM routes ORDER BY route_id",
+                    "SELECT DISTINCT route_id as route_key, route_id, route_name, origin_en as origin, destination_en as destination, "
+                    "'' as origin_tc, '' as destination_tc, service_type, company, NULL as geometry_hash, NULL as last_precomputed_at FROM routes ORDER BY route_id",
                     conn,
                 )
                 routes_df["route_type"] = routes_df.apply(classify_route_type, axis=1)
+                routes_df["region"] = "KLN"
                 stops_df = pd.read_sql_query(
                     "SELECT stop_id, stop_name_en as stop_name, '' as stop_name_tc, lat, lng, company FROM stops ORDER BY stop_id",
                     conn,
                 )
             return routes_df, stops_df
-        st.error(f"Error loading traffic data: {e}")
+    except Exception as e:
         logger.error(f"Database error: {e}")
         return pd.DataFrame(), pd.DataFrame()
 
@@ -146,6 +254,13 @@ def _get_special_route_type(indicator: str) -> str:
 
 
 def classify_route_type(route_row) -> str:
+    comp = str(route_row.get("company", "") or "").upper()
+    if "GMB" in comp or "GREEN MINIBUS" in comp:
+        return "Green Minibus"
+    if "MTR" in comp and "BUS" in comp:
+        return "MTR Bus"
+    if "RMB" in comp or ("RED" in comp and "MINIBUS" in comp):
+        return "Red Minibus"
     route_id = str(route_row["route_id"]).upper()
     destination = str(route_row.get("destination", "")).upper()
     for ind in params["route_types"]["circular"]:
@@ -166,7 +281,7 @@ def _is_terminus_stop(name_en: str, name_tc: str) -> bool:
     return "BUS TERMINUS" in en or "總站" in tc
 
 
-def _reorder_circular_stops(dir_stops: pd.DataFrame, route_id: str) -> pd.DataFrame:
+def _reorder_circular_stops(dir_stops: pd.DataFrame, route_key: str) -> pd.DataFrame:
     """
     For circular routes, KMB API returns terminus last; bus actually starts at terminus.
     Reorder so terminus (last stop) becomes first.
@@ -176,14 +291,14 @@ def _reorder_circular_stops(dir_stops: pd.DataFrame, route_id: str) -> pd.DataFr
     try:
         with sqlite3.connect(DB_PATH) as conn:
             row = pd.read_sql_query(
-                "SELECT destination_en FROM routes WHERE route_id = ? LIMIT 1",
+                "SELECT destination_en FROM routes WHERE route_key = ? OR route_id = ? LIMIT 1",
                 conn,
-                params=(route_id,),
+                params=(route_key, route_key),
             )
         dest = str(row.iloc[0]["destination_en"] or "") if not row.empty else ""
     except Exception:
         dest = ""
-    route_type = classify_route_type({"route_id": route_id, "destination": dest})
+    route_type = classify_route_type({"route_id": route_key, "destination": dest})
     if route_type != "Circular":
         return dir_stops
     last_row = dir_stops.iloc[-1]
@@ -199,38 +314,78 @@ def _reorder_circular_stops(dir_stops: pd.DataFrame, route_id: str) -> pd.DataFr
     return reordered
 
 
+def _enrich_mtr_bus_stops(dir_stops: pd.DataFrame) -> pd.DataFrame:
+    """MTR Bus API has no stop names/coords in JSON — fill labels and map positions."""
+    if dir_stops.empty or "company" not in dir_stops.columns:
+        return dir_stops
+    comp = str(dir_stops["company"].iloc[0] or "")
+    if "MTR" not in comp.upper() or "BUS" not in comp.upper():
+        return dir_stops
+    try:
+        from .mtr_bus_geo import enrich_mtr_stop_row, mtr_bus_stop_leg
+    except ImportError:
+        return dir_stops
+    rid = str(dir_stops["route_id"].iloc[0]) if "route_id" in dir_stops.columns else ""
+    n = len(dir_stops)
+    out = dir_stops.copy()
+    for i, idx in enumerate(out.index):
+        row = out.loc[idx]
+        seq = int(row.get("sequence", i + 1))
+        sid = str(row.get("stop_id", ""))
+        leg = mtr_bus_stop_leg(sid)
+        en, tc, lat, lng = enrich_mtr_stop_row(rid, sid, seq, n, leg)
+        out.loc[idx, "stop_name"] = en
+        out.loc[idx, "stop_name_tc"] = tc
+        out.loc[idx, "lat"] = lat
+        out.loc[idx, "lng"] = lng
+    return out
+
+
 def prepare_direction_stops(
-    route_stops: pd.DataFrame, direction: int, route_id: str
+    route_stops: pd.DataFrame, direction: int, route_key: str
 ) -> pd.DataFrame:
     """Get direction stops sorted by sequence; for circular routes, terminus first."""
     dir_stops = route_stops[route_stops["direction"] == direction].sort_values(
         "sequence"
     )
-    return _reorder_circular_stops(dir_stops, route_id)
+    dir_stops = _reorder_circular_stops(dir_stops, route_key)
+    return _enrich_mtr_bus_stops(dir_stops)
 
 
 def load_all_route_stops() -> dict[str, pd.DataFrame]:
-    """Load all route_stops in one query. Returns {route_id: DataFrame} for instant lookup."""
+    """Load all route_stops in one query. Returns {route_key: DataFrame} for instant lookup."""
     try:
         with sqlite3.connect(DB_PATH) as conn:
-            df = pd.read_sql_query(
-                """
-                SELECT rs.route_id, rs.stop_id, s.stop_name_en as stop_name,
-                    COALESCE(s.stop_name_tc, '') as stop_name_tc, s.lat, s.lng,
-                    rs.sequence, rs.direction, rs.service_type, s.company
-                FROM route_stops rs JOIN stops s ON rs.stop_id = s.stop_id
-                ORDER BY rs.route_id, rs.direction, rs.sequence
-                """,
-                conn,
-            )
+            try:
+                df = pd.read_sql_query(
+                    """
+                    SELECT COALESCE(rs.route_key, rs.route_id) as route_key, rs.route_id, rs.stop_id, s.stop_name_en as stop_name,
+                        COALESCE(s.stop_name_tc, '') as stop_name_tc, s.lat, s.lng,
+                        rs.sequence, rs.direction, rs.service_type, s.company
+                    FROM route_stops rs JOIN stops s ON rs.stop_id = s.stop_id
+                    ORDER BY COALESCE(rs.route_key, rs.route_id), rs.direction, rs.sequence
+                    """,
+                    conn,
+                )
+            except sqlite3.OperationalError:
+                df = pd.read_sql_query(
+                    """
+                    SELECT rs.route_id as route_key, rs.route_id, rs.stop_id, s.stop_name_en as stop_name,
+                        COALESCE(s.stop_name_tc, '') as stop_name_tc, s.lat, s.lng,
+                        rs.sequence, rs.direction, rs.service_type, s.company
+                    FROM route_stops rs JOIN stops s ON rs.stop_id = s.stop_id
+                    ORDER BY rs.route_id, rs.direction, rs.sequence
+                    """,
+                    conn,
+                )
             if "stop_name_tc" not in df.columns:
                 df["stop_name_tc"] = ""
-            return {rid: group for rid, group in df.groupby("route_id")}
+            return {rid: group for rid, group in df.groupby("route_key")}
     except sqlite3.OperationalError:
         with sqlite3.connect(DB_PATH) as conn:
             df = pd.read_sql_query(
                 """
-                SELECT rs.route_id, rs.stop_id, s.stop_name_en as stop_name,
+                SELECT rs.route_id as route_key, rs.route_id, rs.stop_id, s.stop_name_en as stop_name,
                     '' as stop_name_tc, s.lat, s.lng, rs.sequence, rs.direction,
                     rs.service_type, s.company
                 FROM route_stops rs JOIN stops s ON rs.stop_id = s.stop_id
@@ -238,26 +393,39 @@ def load_all_route_stops() -> dict[str, pd.DataFrame]:
                 """,
                 conn,
             )
-            return {rid: group for rid, group in df.groupby("route_id")}
+            return {rid: group for rid, group in df.groupby("route_key")}
     except Exception as e:
         logger.error(f"Error loading all route stops: {e}")
         return {}
 
 
-def get_route_stops_with_directions(route_id: str) -> pd.DataFrame:
+def get_route_stops_with_directions(route_key: str) -> pd.DataFrame:
     try:
         with sqlite3.connect(DB_PATH) as conn:
-            df = pd.read_sql_query(
-                """
-                SELECT rs.route_id, rs.stop_id, s.stop_name_en as stop_name,
-                    COALESCE(s.stop_name_tc, '') as stop_name_tc, s.lat, s.lng,
-                    rs.sequence, rs.direction, rs.service_type, s.company
-                FROM route_stops rs JOIN stops s ON rs.stop_id = s.stop_id
-                WHERE rs.route_id = ? ORDER BY rs.direction, rs.sequence
-                """,
-                conn,
-                params=(route_id,),
-            )
+            try:
+                df = pd.read_sql_query(
+                    """
+                    SELECT COALESCE(rs.route_key, rs.route_id) as route_key, rs.route_id, rs.stop_id, s.stop_name_en as stop_name,
+                        COALESCE(s.stop_name_tc, '') as stop_name_tc, s.lat, s.lng,
+                        rs.sequence, rs.direction, rs.service_type, s.company
+                    FROM route_stops rs JOIN stops s ON rs.stop_id = s.stop_id
+                    WHERE rs.route_key = ? OR rs.route_id = ? ORDER BY rs.direction, rs.sequence
+                    """,
+                    conn,
+                    params=(route_key, route_key),
+                )
+            except sqlite3.OperationalError:
+                df = pd.read_sql_query(
+                    """
+                    SELECT rs.route_id as route_key, rs.route_id, rs.stop_id, s.stop_name_en as stop_name,
+                        COALESCE(s.stop_name_tc, '') as stop_name_tc, s.lat, s.lng,
+                        rs.sequence, rs.direction, rs.service_type, s.company
+                    FROM route_stops rs JOIN stops s ON rs.stop_id = s.stop_id
+                    WHERE rs.route_id = ? ORDER BY rs.direction, rs.sequence
+                    """,
+                    conn,
+                    params=(route_key,),
+                )
             if "stop_name_tc" not in df.columns:
                 df["stop_name_tc"] = ""
             return df
@@ -265,34 +433,174 @@ def get_route_stops_with_directions(route_id: str) -> pd.DataFrame:
         with sqlite3.connect(DB_PATH) as conn:
             return pd.read_sql_query(
                 """
-                SELECT rs.route_id, rs.stop_id, s.stop_name_en as stop_name,
+                SELECT rs.route_id as route_key, rs.route_id, rs.stop_id, s.stop_name_en as stop_name,
                     '' as stop_name_tc, s.lat, s.lng, rs.sequence, rs.direction,
                     rs.service_type, s.company
                 FROM route_stops rs JOIN stops s ON rs.stop_id = s.stop_id
                 WHERE rs.route_id = ? ORDER BY rs.direction, rs.sequence
                 """,
                 conn,
-                params=(route_id,),
+                params=(route_key,),
             )
     except Exception as e:
-        logger.error(f"Error fetching route stops for {route_id}: {e}")
+        logger.error(f"Error fetching route stops for {route_key}: {e}")
         return pd.DataFrame()
 
 
-def get_route_directions_with_depots(route_id: str) -> list[dict[str, Any]]:
+def get_all_route_directions_bulk(
+    routes_df: pd.DataFrame,
+) -> dict[str, list[dict[str, Any]]]:
+    """Bulk fetch directions for all routes (few queries vs N per route). Returns {route_key: [dir_info...]}."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            route_keys = routes_df["route_key"].dropna().unique().tolist()
+            if not route_keys:
+                return {}
+            batch_size = 500
+            routes_info_list = []
+            dirs_list = []
+            ep_list = []
+            for i in range(0, len(route_keys), batch_size):
+                chunk = route_keys[i : i + batch_size]
+                ph = ",".join("?" * len(chunk))
+                routes_info_list.append(
+                    pd.read_sql_query(
+                        f"""SELECT route_key, route_id, origin_en, destination_en,
+                            COALESCE(origin_tc,'') as origin_tc, COALESCE(destination_tc,'') as destination_tc
+                            FROM routes WHERE route_key IN ({ph})""",
+                        conn,
+                        params=chunk,
+                    )
+                )
+                dirs_list.append(
+                    pd.read_sql_query(
+                        f"""SELECT COALESCE(route_key, route_id) as rk, direction, COUNT(*) as stop_count
+                            FROM route_stops WHERE COALESCE(route_key, route_id) IN ({ph})
+                            GROUP BY rk, direction ORDER BY rk, direction""",
+                        conn,
+                        params=chunk,
+                    )
+                )
+                try:
+                    ep_list.append(
+                        pd.read_sql_query(
+                            f"""SELECT COALESCE(rs.route_key, rs.route_id) as rk, rs.direction, rs.sequence,
+                                s.stop_name_en as name_en, COALESCE(s.stop_name_tc,'') as name_tc
+                                FROM route_stops rs JOIN stops s ON rs.stop_id = s.stop_id
+                                WHERE COALESCE(rs.route_key, rs.route_id) IN ({ph})""",
+                            conn,
+                            params=chunk,
+                        )
+                    )
+                except sqlite3.OperationalError:
+                    ep_list.append(pd.DataFrame())
+            routes_info = (
+                pd.concat(routes_info_list, ignore_index=True)
+                if routes_info_list
+                else pd.DataFrame()
+            )
+            dirs_df = (
+                pd.concat(dirs_list, ignore_index=True) if dirs_list else pd.DataFrame()
+            )
+            ep_df = pd.concat(ep_list, ignore_index=True) if ep_list else pd.DataFrame()
+            routes_by_key = {}
+            if not routes_info.empty and "route_key" in routes_info.columns:
+                for _, row in routes_info.iterrows():
+                    rk = row.get("route_key") or row.get("route_id")
+                    if rk is not None:
+                        routes_by_key[str(rk)] = dict(row)
+            dirs_by_route = dirs_df.groupby("rk")
+            circular_first_last = {}
+            if not ep_df.empty:
+                for (rk, d), grp in ep_df.groupby(["rk", "direction"]):
+                    first_row = grp.loc[grp["sequence"].idxmin()]
+                    last_row = grp.loc[grp["sequence"].idxmax()]
+                    if isinstance(first_row, pd.Series) and isinstance(
+                        last_row, pd.Series
+                    ):
+                        circular_first_last[(rk, int(d))] = (
+                            str(first_row.get("name_en", "") or ""),
+                            str(last_row.get("name_en", "") or ""),
+                            str(first_row.get("name_tc", "") or ""),
+                            str(last_row.get("name_tc", "") or ""),
+                        )
+            result = {}
+            for rk in route_keys:
+                r = routes_by_key.get(rk, {})
+                if not r or not isinstance(r, dict):
+                    result[rk] = []
+                    continue
+                origin = r.get("origin_en", "")
+                destination = r.get("destination_en", "")
+                otc = r.get("origin_tc", "") or ""
+                dtc = r.get("destination_tc", "") or ""
+
+                def _depot(o: str, d: str, oc: str, dc: str) -> str:
+                    en = f"{o} → {d}"
+                    if oc and dc:
+                        return f"{en} ({oc} → {dc})"
+                    return en
+
+                route_type = classify_route_type(
+                    {"route_id": rk, "destination": destination}
+                )
+                try:
+                    grp = dirs_by_route.get_group(rk)
+                except KeyError:
+                    grp = pd.DataFrame()
+                dirs = []
+                for _, row in grp.iterrows():
+                    d, cnt = int(row["direction"]), row["stop_count"]
+                    if route_type == "Circular":
+                        key = (rk, d)
+                        if key in circular_first_last:
+                            first_en, last_en, first_tc, last_tc = circular_first_last[
+                                key
+                            ]
+                            depot_name = (
+                                _depot(last_en, first_en, last_tc, first_tc)
+                                + " (Circular)"
+                            )
+                        else:
+                            depot_name = (
+                                _depot(origin, destination, otc, dtc) + " (Circular)"
+                            )
+                        name = "Circular"
+                    elif d == 1:
+                        depot_name = _depot(origin, destination, otc, dtc)
+                        name = "Outbound"
+                    else:
+                        depot_name = _depot(destination, origin, dtc, otc)
+                        name = "Inbound"
+                    dirs.append(
+                        {
+                            "direction": d,
+                            "name": name,
+                            "depot": depot_name,
+                            "stops": cnt,
+                        }
+                    )
+                result[rk] = dirs
+            return result
+    except Exception:
+        logger.exception("Bulk directions failed")
+        return {}
+
+
+def get_route_directions_with_depots(route_key: str) -> list[dict[str, Any]]:
     try:
         with sqlite3.connect(DB_PATH) as conn:
             try:
                 route_info = pd.read_sql_query(
-                    "SELECT origin_en, destination_en, origin_tc, destination_tc FROM routes WHERE route_id = ?",
+                    "SELECT origin_en, destination_en, origin_tc, destination_tc FROM routes WHERE route_key = ? OR route_id = ?",
                     conn,
-                    params=(route_id,),
+                    params=(route_key, route_key),
                 )
             except sqlite3.OperationalError:
                 route_info = pd.read_sql_query(
                     "SELECT origin_en, destination_en FROM routes WHERE route_id = ?",
                     conn,
-                    params=(route_id,),
+                    params=(route_key,),
                 )
                 route_info["origin_tc"] = route_info["destination_tc"] = ""
             if route_info.empty:
@@ -310,13 +618,20 @@ def get_route_directions_with_depots(route_id: str) -> list[dict[str, Any]]:
                 return en
 
             route_type = classify_route_type(
-                {"route_id": route_id, "destination": destination}
+                {"route_id": route_key, "destination": destination}
             )
-            dirs_df = pd.read_sql_query(
-                "SELECT DISTINCT direction, COUNT(*) as stop_count FROM route_stops WHERE route_id = ? GROUP BY direction ORDER BY direction",
-                conn,
-                params=(route_id,),
-            )
+            try:
+                dirs_df = pd.read_sql_query(
+                    "SELECT DISTINCT direction, COUNT(*) as stop_count FROM route_stops WHERE route_key = ? OR route_id = ? GROUP BY direction ORDER BY direction",
+                    conn,
+                    params=(route_key, route_key),
+                )
+            except sqlite3.OperationalError:
+                dirs_df = pd.read_sql_query(
+                    "SELECT DISTINCT direction, COUNT(*) as stop_count FROM route_stops WHERE route_id = ? GROUP BY direction ORDER BY direction",
+                    conn,
+                    params=(route_key,),
+                )
             # For circular routes, use actual first/last stop from route_stops (routes table can be wrong)
             circular_endpoints = {}
             if route_type == "Circular":
@@ -324,10 +639,10 @@ def get_route_directions_with_depots(route_id: str) -> list[dict[str, Any]]:
                     """
                     SELECT rs.direction, rs.sequence, s.stop_name_en as name_en, COALESCE(s.stop_name_tc,'') as name_tc
                     FROM route_stops rs JOIN stops s ON rs.stop_id = s.stop_id
-                    WHERE rs.route_id = ?
+                    WHERE rs.route_key = ? OR rs.route_id = ?
                     """,
                     conn,
-                    params=(route_id,),
+                    params=(route_key, route_key),
                 )
                 for d in ep_df["direction"].unique():
                     dd = ep_df[ep_df["direction"] == d]
@@ -366,24 +681,53 @@ def get_route_directions_with_depots(route_id: str) -> list[dict[str, Any]]:
                 )
             return directions
     except Exception as e:
-        logger.error(f"Error getting directions for {route_id}: {e}")
+        logger.error(f"Error getting directions for {route_key}: {e}")
         return []
 
 
 def natural_sort_key(route_id: str) -> tuple[int, int, str]:
     """Sort: 1, 1A, 1X... then 2, 2A... (group by number, pure number first then letter variants)."""
-    m = re.match(r"(\d+)(.*)", str(route_id))
+    rid = str(route_id)
+    if "-" in rid:
+        prefix, rest = rid.split("-", 1)
+        if prefix in ("HKI", "KLN", "NT"):
+            reg_order = {"HKI": 0, "KLN": 1, "NT": 2}.get(prefix, 9)
+            m = re.match(r"(\d+)(.*)", rest, re.I)
+            if m:
+                num, suffix = int(m.group(1)), m.group(2)
+                has_suffix = 1 if suffix else 0
+                return (reg_order, num, has_suffix, suffix)
+            return (reg_order, 0, 0, rest)
+    m = re.match(r"(\d+)(.*)", rid)
     if m:
         num, suffix = int(m.group(1)), m.group(2)
         has_suffix = 1 if suffix else 0  # 0 = pure number first within group
-        return (num, has_suffix, suffix)
-    return (0, 0, str(route_id))
+        return (0, num, has_suffix, suffix)
+    return (0, 0, 0, rid)
+
+
+def _company_sort_tier(company: str) -> int:
+    c = str(company or "").upper()
+    if "KMB" in c or "LWB" in c:
+        return 0
+    if "CTB" in c:
+        return 1
+    if "GMB" in c:
+        return 2
+    if "MTR" in c and "BUS" in c:
+        return 3
+    if "RMB" in c or ("RED" in c and "MINIBUS" in c):
+        return 4
+    return 5
 
 
 def get_sorted_routes(routes_df: pd.DataFrame) -> pd.DataFrame:
+    """Operator order (KMB → CTB → GMB → MTR Bus → red minibus), then sensible route number sort."""
     df = routes_df.copy()
-    df["sort_key"] = df["route_id"].apply(natural_sort_key)
-    return df.sort_values("sort_key").drop("sort_key", axis=1)
+    df["_tier"] = df["company"].apply(_company_sort_tier)
+    df["_sort_key"] = df["route_id"].apply(natural_sort_key)
+    df = df.sort_values(by=["_tier", "_sort_key"], kind="mergesort")
+    return df.drop(columns=["_tier", "_sort_key"])
 
 
 def search_routes_with_directions(
@@ -526,7 +870,7 @@ def _stops_hash(dir_stops: pd.DataFrame) -> str:
 
 
 def _load_geometry_cache() -> dict:
-    """Load precomputed route geometry from JSON cache."""
+    """Load precomputed route geometry from legacy single-file cache."""
     import json
     from pathlib import Path
 
@@ -549,8 +893,23 @@ def _get_geometry_cache() -> dict:
     return _load_geometry_cache()
 
 
+def _get_geometry_entry(cache_key: str):
+    """Get geometry for one route. Prefers per-route dir (editable), else legacy cache."""
+    if params.get("route_geometry_dir"):
+        from .precompute import load_route_entry
+
+        entry = load_route_entry(cache_key)
+        if entry and entry.get("coords"):
+            return entry
+        return None
+    return _get_geometry_cache().get(cache_key)
+
+
 def get_route_geometry_with_progress(
-    route_stops: pd.DataFrame, direction: int, route_id: str | None = None
+    route_stops: pd.DataFrame,
+    direction: int,
+    route_id: str | None = None,
+    geometry_hash: str | None = None,
 ) -> list[list[float]]:
     dir_stops = route_stops[route_stops["direction"] == direction].sort_values(
         "sequence"
@@ -564,16 +923,24 @@ def get_route_geometry_with_progress(
     ]
     if len(coords) < MIN_STOPS_FOR_ROUTE:
         return [[lat, lng] for lat, lng in coords]
+
     cache_key = f"{route_id}_{int(direction)}" if route_id else None
     if cache_key:
-        cache = _get_geometry_cache()
-        entry = cache.get(cache_key)
+        entry = _get_geometry_entry(cache_key)
         if entry:
+            # If we have a hash from DB, trust it for fast loading
+            if geometry_hash and entry.get("hash") == geometry_hash:
+                return entry.get("coords") or []
+
+            # Fallback to file-based hash check
+            if params.get("route_geometry_dir"):
+                return entry.get("coords") or []
+
             current_hash = _stops_hash(dir_stops)
             if isinstance(entry, dict):
                 if entry.get("hash") == current_hash and entry.get("coords"):
                     return entry["coords"]
-            else:
+            elif isinstance(entry, list):
                 return entry
     use_osm = params.get("osm", {}).get("use_osm_routing", True)
     if use_osm:
@@ -703,6 +1070,7 @@ def create_enhanced_route_map(
     direction: int = 1,
     eta_dict: dict[str, list[str]] | None = None,
     lang: str = "en",
+    geometry_hash: str | None = None,
 ) -> folium.Map:
     eta_dict = eta_dict or {}
     clat, clng, zoom = _calculate_map_bounds(route_stops, direction, selected_stop_id)
@@ -725,13 +1093,16 @@ def create_enhanced_route_map(
     route_center = (clat, clng, zoom) if not route_stops.empty else None
     _add_map_controls(m, route_center=route_center, lang=lang)
     if not route_stops.empty:
-        route_id = (
-            str(route_stops["route_id"].iloc[0])
-            if "route_id" in route_stops.columns and not route_stops.empty
-            else None
-        )
+        # Use route_key (KMB_1, CTB_1) for cache lookup - matches precompute file names
+        route_key = None
+        if "route_key" in route_stops.columns:
+            route_key = (
+                str(route_stops["route_key"].iloc[0]) if not route_stops.empty else None
+            )
+        if not route_key and "route_id" in route_stops.columns:
+            route_key = str(route_stops["route_id"].iloc[0])
         coords = get_route_geometry_with_progress(
-            route_stops, direction, route_id=route_id
+            route_stops, direction, route_id=route_key, geometry_hash=geometry_hash
         )
         if len(coords) > 1:
             use_osm = params.get("osm", {}).get("use_osm_routing", True)
@@ -751,7 +1122,9 @@ def create_enhanced_route_map(
             "sequence"
         )
         for _, s in dir_stops.iterrows():
-            if pd.notna(s["lat"]) and pd.notna(s["lng"]):
+            lat_v = float(s["lat"]) if pd.notna(s["lat"]) else 0.0
+            lng_v = float(s["lng"]) if pd.notna(s["lng"]) else 0.0
+            if lat_v and lng_v and pd.notna(s["lat"]) and pd.notna(s["lng"]):
                 stop_name = s["stop_name"]
                 stop_tc = s.get("stop_name_tc", "") or ""
                 if lang == "tc" and stop_tc:
@@ -770,7 +1143,7 @@ def create_enhanced_route_map(
                     else folium.Icon(color="blue", icon="bus", prefix="fa")
                 )
                 folium.Marker(
-                    [s["lat"], s["lng"]],
+                    [lat_v, lng_v],
                     popup=folium.Popup(popup_text, max_width=250),
                     icon=icon,
                 ).add_to(m)
@@ -787,6 +1160,9 @@ def format_route_type_badge(route_type: str) -> str:
         "Airport": "#17a2b8",
         "Special Service": "#ffc107",
         "Special": "#6c757d",
+        "Green Minibus": "#20c997",
+        "MTR Bus": "#9c27b0",
+        "Red Minibus": "#e91e63",
     }
     c = colors.get(route_type, "#6c757d")
     return f'<span style="background:{c};color:white;padding:2px 6px;border-radius:3px;font-size:12px;font-weight:bold">{route_type}</span>'
@@ -824,7 +1200,36 @@ def create_route_options(routes_df: pd.DataFrame) -> list[dict[str, Any]]:
 def create_route_options_with_directions(
     routes_df: pd.DataFrame,
 ) -> list[dict[str, Any]]:
-    """Create route options including direction - one option per (route_id, direction)."""
+    """Create route options including direction - one option per (route_key, direction).
+    When same route_id exists for multiple companies (e.g. KMB 1 vs CTB 1), add region suffix (HKL/KLN) to differentiate.
+    Uses bulk directions fetch for fast preloading and fetches geometry hashes from DB.
+    """
+    route_id_counts = {}
+    if not routes_df.empty and "route_id" in routes_df.columns:
+        route_id_counts = routes_df.groupby("route_id").size().to_dict()
+
+    directions_map = get_all_route_directions_bulk(routes_df)
+
+    def _company_short(c: str) -> str:
+        u = str(c or "").upper()
+        if "KMB" in u or "LWB" in u:
+            return "KMB"
+        if "CTB" in u:
+            return "CTB"
+        if "GMB" in u:
+            return "GMB"
+        if "MTR" in u and "BUS" in u:
+            return "MTR"
+        if "RMB" in u or ("RED" in u and "MINIBUS" in u):
+            return "RMB"
+        return (str(c) or "?")[:14]
+
+    # Fetch all geometry hashes at once
+    from .database_manager import KMBDatabaseManager
+
+    db_manager = KMBDatabaseManager(DB_PATH, init_db=False)
+    all_hashes = db_manager.get_route_geometry_hashes()
+
     options = []
     for _, route in routes_df.iterrows():
         try:
@@ -834,15 +1239,41 @@ def create_route_options_with_directions(
         otc = route.get("origin_tc", "") or ""
         dtc = route.get("destination_tc", "") or ""
         route_type = route.get("route_type", "Regular")
-        for di in get_route_directions_with_depots(route["route_id"]):
+        route_key = route.get("route_key", route.get("route_id", ""))
+        route_id = route.get("route_id", route_key)
+        region = route.get("region", "KLN")
+        comp = route.get("company", "") or ""
+        prov = str(route.get("provider_route_id") or "").strip() or None
+        co_short = _company_short(comp)
+        dirs = directions_map.get(route_key, []) or get_route_directions_with_depots(
+            route_key
+        )
+        if not dirs:
+            depot = f"{origin} → {destination}".strip()
+            if otc or dtc:
+                depot = f"{depot} ({otc} → {dtc})".strip()
+            if not depot.replace("→", "").strip():
+                depot = "No stop list (reference route only)"
+            dirs = [{"direction": 1, "name": "Listed", "depot": depot, "stops": 0}]
+
+        for di in dirs:
             depot = di["depot"]
             dir_num = di["direction"]
             stops_cnt = di["stops"]
-            text = f"{route['route_id']} - {depot} (Dir {dir_num}, {stops_cnt} stops) [{route_type}]"
+            rid_display = str(route_id)
+            if route_id_counts.get(route_id, 1) > 1:
+                rid_display = f"{route_id} · {region}"
+
+            # Get hash for this specific (route, direction)
+            geometry_hash = all_hashes.get((str(route_key), int(dir_num)))
+
+            text = f"[{co_short}] {rid_display} — {depot} (dir {dir_num}, {stops_cnt} stops) · {route_type}"
             options.append(
                 {
                     "text": text,
-                    "route_id": route["route_id"],
+                    "route_key": route_key,
+                    "route_id": route_id,
+                    "display_route_id": rid_display,
                     "direction": dir_num,
                     "origin": origin,
                     "destination": destination,
@@ -851,6 +1282,11 @@ def create_route_options_with_directions(
                     "route_type": route_type,
                     "depot_name": depot,
                     "stop_count": stops_cnt,
+                    "company": comp,
+                    "region": region,
+                    "geometry_hash": geometry_hash,
+                    "provider_route_id": prov,
+                    "route_name": str(route.get("route_name") or ""),
                 }
             )
     return options
@@ -880,27 +1316,148 @@ def _eta_to_minutes_from_now(ts_str: str) -> str:
         return str(ts_str)[:5] if len(str(ts_str)) >= 5 else str(ts_str)
 
 
+def _fetch_mtr_bus_eta_map(route_name: str) -> dict[str, list[str]]:
+    """One POST returns all stops for an MTR Bus route."""
+    url = params.get("api", {}).get(
+        "mtr_bus_schedule_url",
+        "https://rt.data.gov.hk/v1/transport/mtr/bus/getSchedule",
+    )
+    try:
+        r = requests.post(
+            url,
+            json={"language": "en", "routeName": str(route_name).strip()},
+            timeout=20,
+            headers={"User-Agent": "YuuTraffic/1.0", "Accept": "application/json"},
+        )
+        if r.status_code != HTTP_OK:
+            return {}
+        data = r.json()
+        out: dict[str, list[str]] = {}
+        for bs in data.get("busStop") or []:
+            if not isinstance(bs, dict):
+                continue
+            sid = str(bs.get("busStopId") or "")
+            if not sid:
+                continue
+            etas = []
+            for bus in (bs.get("bus") or [])[:4]:
+                if not isinstance(bus, dict):
+                    continue
+                t = bus.get("arrivalTimeText") or bus.get("departureTimeText")
+                if t is None:
+                    continue
+                ts = str(t).strip()
+                if ts and ts not in ("", "—"):
+                    etas.append(ts)
+            if etas:
+                out[sid] = etas[:3]
+        return out
+    except Exception as e:
+        logger.debug("MTR Bus ETA %s: %s", route_name, e)
+        return {}
+
+
 def fetch_etas_for_stops(
     route_id: str,
     stop_ids: list[str],
     service_type: int = 1,
     max_stops: int = 20,
     minutes_format: bool = True,
+    company: str = "",
+    provider_route_id: str | None = None,
+    route_direction: int = 1,
+    stop_sequences: list[int] | None = None,
 ) -> dict[str, list[str]]:
     """
-    Fetch real-time ETAs from KMB API for given stops.
-    Returns {stop_id: [eta1, eta2, eta3]} - either 'X min' or 'HH:MM' per minutes_format.
+    Fetch real-time ETAs: KMB, Citybus, green minibus (etagmb), or MTR Bus (single schedule POST).
     """
     import time as _time
 
-    base_url = params.get("api", {}).get(
-        "kmb_base_url", "https://data.etabus.gov.hk/v1/transport/kmb"
-    )
+    comp_u = str(company or "").upper()
+    if "MTR" in comp_u and "BUS" in comp_u:
+        return _fetch_mtr_bus_eta_map(provider_route_id or route_id)
+
+    if "GMB" in comp_u:
+        gmb_base = (
+            params.get("api", {})
+            .get("gmb_base_url", "https://data.etagmb.gov.hk")
+            .rstrip("/")
+        )
+        prov = str(provider_route_id or "").strip()
+        if not prov:
+            return {}
+        result: dict[str, list[str]] = {}
+        stops = stop_ids[:max_stops]
+        seqs = stop_sequences or []
+        if len(seqs) < len(stops):
+            seqs = list(seqs) + list(range(len(seqs) + 1, len(stops) + 1))
+        for i, stop_id in enumerate(stops):
+            seq = int(seqs[i]) if i < len(seqs) else i + 1
+            try:
+                url = f"{gmb_base}/eta/route-stop/{prov}/{int(route_direction)}/{seq}"
+                r = requests.get(
+                    url,
+                    timeout=10,
+                    headers={
+                        "User-Agent": "YuuTraffic/1.0",
+                        "Accept": "application/json",
+                    },
+                )
+                if r.status_code != HTTP_OK:
+                    continue
+                payload = r.json()
+                block = payload.get("data") or {}
+                if block.get("enabled") is False:
+                    continue
+                entries = block.get("eta") or []
+                if not isinstance(entries, list):
+                    entries = []
+                etas = []
+                for e in entries:
+                    if not isinstance(e, dict):
+                        continue
+                    ts = e.get("timestamp")
+                    if ts:
+                        if minutes_format:
+                            etas.append(_eta_to_minutes_from_now(ts))
+                        else:
+                            try:
+                                ts_clean = str(ts).replace("Z", "+00:00")
+                                etas.append(
+                                    datetime.fromisoformat(ts_clean).strftime("%H:%M")
+                                )
+                            except Exception:
+                                etas.append(
+                                    str(ts)[:5] if len(str(ts)) >= 5 else str(ts)
+                                )
+                    elif e.get("diff") is not None:
+                        etas.append(f"{e.get('diff')} min")
+                if etas:
+                    result[stop_id] = etas[:3]
+            except Exception as e:
+                logger.debug("GMB ETA %s seq %s: %s", stop_id, seq, e)
+            if i < len(stops) - 1:
+                _time.sleep(0.08)
+        return result
+
+    is_ctb = comp_u.startswith("CTB")
+    if is_ctb:
+        base_url = params.get("api", {}).get(
+            "citybus_base_url", "https://rt.data.gov.hk/v2/transport/citybus"
+        )
+        base_url = f"{base_url}/eta/ctb"
+    else:
+        base_url = params.get("api", {}).get(
+            "kmb_base_url", "https://data.etabus.gov.hk/v1/transport/kmb"
+        )
     result: dict[str, list[str]] = {}
     stops = stop_ids[:max_stops]
     for i, stop_id in enumerate(stops):
         try:
-            url = f"{base_url}/eta/{stop_id}/{route_id}/{service_type}"
+            if is_ctb:
+                url = f"{base_url}/{stop_id}/{route_id}"
+            else:
+                url = f"{base_url}/eta/{stop_id}/{route_id}/{service_type}"
             r = requests.get(
                 url,
                 timeout=8,

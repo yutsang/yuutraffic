@@ -1,3 +1,6 @@
+# Repo git hygiene policy: see docs/GIT_AND_CI.md
+# .cursorrules stays local-only (listed below); team policy is in docs/GIT_AND_CI.md
+
 # Python
 __pycache__/
 *.py[cod]
@@ -45,34 +48,32 @@ coverage.xml
 *.mo
 *.pot
 
-# Django stuff:
+# Django / Flask
 *.log
 local_settings.py
 db.sqlite3
-
-# Flask stuff:
 instance/
 .webassets-cache
 
-# Scrapy stuff:
+# Scrapy
 .scrapy
 
-# Sphinx documentation
+# Sphinx
 docs/_build/
 
 # PyBuilder
 target/
 
-# Jupyter Notebook
+# Jupyter
 .ipynb_checkpoints
 
 # pyenv
 .python-version
 
-# celery beat schedule file
+# celery
 celerybeat-schedule
 
-# SageMath parsed files
+# SageMath
 *.sage.py
 
 # Environments
@@ -84,14 +85,12 @@ ENV/
 env.bak/
 venv.bak/
 
-# Spyder project settings
+# Spyder / Rope
 .spyderproject
 .spyproject
-
-# Rope project settings
 .ropeproject
 
-# mkdocs documentation
+# mkdocs
 /site
 
 # mypy
@@ -106,52 +105,7 @@ dmypy.json
 *.swo
 *~
 
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Project specific
-transport_data_cache.json
-*.cache
-*.log
-
-# Streamlit
-.streamlit/
-
-# Temporary files
-*.tmp
-*.temp
-temp/
-tmp/
-
-# Data files (if any)
-*.csv
-*.xlsx
-*.json
-!requirements.json
-!package.json
-
-# Docker
-.dockerignore
-docker-compose.override.yml
-
-# Node.js (if any frontend components)
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Backup files
-*.bak
-*.backup
-*.old
-
-# System files
+# OS, Windows, macOS, Linux (single block)
 .DS_Store
 .DS_Store?
 ._*
@@ -160,19 +114,55 @@ yarn-error.log*
 ehthumbs.db
 Thumbs.db
 desktop.ini
-
-# Windows
 *.lnk
-
-# macOS
 .AppleDouble
 .LSOverride
 Icon
-._*
-
-# Linux
-*~
 .fuse_hidden*
 .directory
 .Trash-*
-.nfs* 
+.nfs*
+
+# Project: caches and logs
+transport_data_cache.json
+*.cache
+*.log
+
+# Streamlit local secrets
+.streamlit/
+
+# Temporary
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Downloaded / generated data under data/ (conf/ uses YAML — keep tracked)
+data/**/*.csv
+data/**/*.xlsx
+data/**/*.json
+data/**/*.db
+data/.first_run_complete
+
+# Local viz / scratch
+.viz/
+
+# Docker local overrides only (commit a root .dockerignore when added)
+docker-compose.override.yml
+
+# Node (if used)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Backup
+*.bak
+*.backup
+*.old
+
+# Accidental nested clone / submodule debris
+/rrag/
+
+# Cursor — local AI rules (committed policy: docs/GIT_AND_CI.md)
+.cursorrules

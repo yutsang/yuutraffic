@@ -11,6 +11,16 @@ app:
 # API Endpoints and Links
 api:
   kmb_base_url: "https://data.etabus.gov.hk/v1/transport/kmb"
+  citybus_base_url: "https://rt.data.gov.hk/v2/transport/citybus"
+  gmb_base_url: "https://data.etagmb.gov.hk"
+  mtr_bus_schedule_url: "https://rt.data.gov.hk/v1/transport/mtr/bus/getSchedule"
+  mtr_next_train_url: "https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php"
+  mtr_light_rail_schedule_url: "https://rt.data.gov.hk/v1/transport/mtr/lrt/getSchedule"
+  mtr_light_rail_routes_stops_url: "https://opendata.mtr.com.hk/data/light_rail_routes_and_stops.csv"
+  mtr_lines_stations_url: "https://opendata.mtr.com.hk/data/mtr_lines_and_stations.csv"
+  mtr_indoor_map_base_url: "https://mapapi.hkmapservice.gov.hk/ogc/wfs/indoor"
+  # OpenStreetMap Nominatim (geocoding). Use a descriptive User-Agent per https://operations.osmfoundation.org/policies/nominatim/
+  nominatim_search_url: "https://nominatim.openstreetmap.org/search"
   # driving = buses follow roads (walking used pedestrian paths, wrong for Choi Hung–Diamond Hill etc.)
   osm_routing_url: "http://router.project-osrm.org/route/v1/driving"
   endpoints:
@@ -28,7 +38,10 @@ database:
   connection_timeout: 30
   enable_foreign_keys: true
 
-# Precomputed route geometry cache (run "yuutraffic precompute" to build with driving profile)
+# Precomputed route geometry: per-route JSON files (editable, no recompute)
+# Run "yuutraffic --update" to build. Each file: stops metadata + OSM coords.
+route_geometry_dir: "data/02_intermediate/route_geometry"
+# Legacy single-file cache (fallback if dir not used)
 route_geometry_cache: "data/02_intermediate/route_geometry_cache.json"
 
 # Scheduling Configuration
@@ -79,6 +92,35 @@ route_types:
   airport: ["A", "E"]
   special_service: ["S", "R"]
 
+# Trip planner: straight-line radius ≈ walk_minutes at walking_speed_kmh; cap IDs for routing cost
+trip_planner:
+  walk_minutes: 15
+  walking_speed_kmh: 5
+  max_catchment_stop_ids: 400
+  max_transfers: 3
+  top_results: 5
+  max_direct_results: 3
+  # Dijkstra routing: cost = bus_hops + routing_transfer_penalty * (number of interchanges)
+  routing_transfer_penalty: 8
+  routing_cost_slack: 4
+  routing_max_alternatives: 80
+  # ETA (rough): bus from path length, walk from km, fixed minutes per transfer
+  avg_bus_speed_kmh: 17
+  minutes_per_transfer: 4
+  fallback_minutes_per_bus_hop: 2.4
+  # Show options no slower than min(best * ratio, best + extra_minutes); then cap at top_results
+  results_max_extra_minutes_vs_best: 22
+  results_max_ratio_vs_best: 1.38
+
+# MTR-family routing and layout configuration
+mtr:
+  routing_transfer_penalty: 4.0
+  light_rail_transfer_penalty: 3.0
+  # Heuristic journey time (minutes) for MTR railway trips (not live ETA)
+  rail_minutes_per_stop: 2.5
+  walk_leg_minutes: 5.0
+  interchange_minutes: 3.0
+
 # Search Configuration
 search:
   show_both_directions: true
@@ -125,6 +167,14 @@ data_update:
   progress_reporting: true
   verify_data_integrity: true
   cleanup_old_data: true
+  # --update skips API + geometry when row counts look like a full import (see catalog_min_*).
+  # Set false to always run a full download + map geometry on every --update.
+  skip_transport_api_if_catalog_complete: true
+  catalog_min_routes: 500
+  catalog_min_stops: 500
+  catalog_min_route_stops: 5000
+  # Live vs DB check POSTs every MTR candidate route; set false to only compare KMB/CTB/GMB + red minibus JSON.
+  catalog_compare_mtr: true
 
 # GitHub Actions CI/CD Configuration
 ci_cd:

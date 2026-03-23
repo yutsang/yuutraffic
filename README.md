@@ -38,6 +38,12 @@
 - **Stop highlighting** with detailed information
 - **Responsive design** for mobile devices
 
+### 🚇 MTR Tools
+- **Railway routing** across the MTR network, including Airport Express
+- **Live railway ETA** from the official next-train API in a compact route card
+- **Light Rail routing + ETA** using official route-stop data and live station boards
+- **Interactive station layout maps** powered by the CSDI indoor map API
+
 ### 📱 Mobile Friendly
 - **Responsive design** adapts to all screen sizes
 - **Touch-friendly** interface for mobile devices
@@ -86,10 +92,16 @@
    pip install -e .
    ```
 
-3. **_(First run only)_ Create the database if needed:**
+3. **_(First run only)_ Download all transport data and map geometry:**
    ```bash
-   python -m yuutraffic.data_updater --all --db-path data/01_raw/kmb_data.db
+   yuutraffic --update
    ```
+   Refreshes **KMB, Citybus, green minibus (GMB), MTR Bus**, **red minibus** listings, then **incremental** road geometry for maps (GMB download is slow).  
+   **Where data lives:** route/stop tables are in **SQLite** (`data/01_raw/kmb_data.db`); map polylines are **JSON** under `data/02_intermediate/route_geometry/`. This is **not** a general point-to-point router—only fixed routes from the APIs.  
+   **Repeat runs:** if the DB passes minimum row counts (`data_update.catalog_min_*`) **and** lightweight live checks match the database (KMB / Citybus / GMB route lists, optional MTR Bus stop sequences, red minibus JSON vs `RMB` rows), `yuutraffic --update` skips downloading and map geometry. Set **`skip_transport_api_if_catalog_complete: false`** for a full download every time; set **`catalog_compare_mtr: false`** to skip MTR POSTs during that check (faster).
+
+   **MTR Bus** stops have no official names in the ETA API; the app uses district-aware labels (`mtr_bus_routes_meta.py`), optional per-stop names in `data/01_raw/mtr_bus_stop_overrides.json`, and approximate map lines per route (not survey-grade). After changing metadata, run a transport refresh so SQLite picks up new coordinates.  
+   **CLI summary:** `yuutraffic` starts the app · `yuutraffic --update` refreshes DB + maps.
 
 4. **Launch the application:**
    ```bash
@@ -102,6 +114,8 @@
    ```
    http://localhost:8508
    ```
+   Sidebar **Trip Planner**: point-to-point bus suggestions (direct + one interchange).  
+   Sidebar **MTR Routing & ETA**: railway routing, live ETA at each rail boarding station (planned direction only), heuristic per-segment and total times, Light Rail ETA, and station layout summaries.
 
 ## 🛠️ Usage Guide
 
@@ -190,6 +204,11 @@ All application behavior is configurable through `conf/base/parameters.yml`:
 api:
   kmb_base_url: "https://data.etabus.gov.hk/v1/transport/kmb"
   osm_routing_url: "http://router.project-osrm.org/route/v1/driving"
+  mtr_next_train_url: "https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php"
+  mtr_light_rail_schedule_url: "https://rt.data.gov.hk/v1/transport/mtr/lrt/getSchedule"
+  mtr_light_rail_routes_stops_url: "https://opendata.mtr.com.hk/data/light_rail_routes_and_stops.csv"
+  mtr_lines_stations_url: "https://opendata.mtr.com.hk/data/mtr_lines_and_stations.csv"
+  mtr_indoor_map_base_url: "https://mapapi.hkmapservice.gov.hk/ogc/wfs/indoor"
 
 # Route Type Classification
 route_types:
@@ -202,6 +221,15 @@ route_types:
 map:
   center: {lat: 22.3193, lng: 114.1694}
   auto_zoom: {enabled: true, route_zoom: 13, stop_zoom: 16}
+
+# MTR routing
+mtr:
+  routing_transfer_penalty: 4.0
+  light_rail_transfer_penalty: 3.0
+  # Heuristic journey time on the MTR Routing page (not live ETA)
+  rail_minutes_per_stop: 2.5
+  walk_leg_minutes: 5.0
+  interchange_minutes: 3.0
 
 # Scheduling
 schedule:

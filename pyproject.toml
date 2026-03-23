@@ -85,7 +85,17 @@ ignore = [
     "PLR2004", # Magic values in domain logic
     "PLR0912", # Too many branches (launcher)
     "PLR0915", # Too many statements (launcher, precompute)
+    "PLR0913", # Too many arguments (domain / UI helpers)
+    "PLR0911", # Too many return statements (geometry / routing)
+    "PLW2901", # Loop variable reassignment (parsed rows)
+    "PLW0603", # Module-level cache globals (MTR overrides)
+    "E741",    # Short names O/D in set algebra (journey routing)
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"pages/**/*.py" = ["E402"]  # sys.path before imports (Streamlit multipage)
+"tests/test_app.py" = ["F401"]  # import smoke test
+"src/yuutraffic/__main__.py" = ["T201"]  # CLI may print user-facing messages
 
 [tool.isort]
 profile = "black"

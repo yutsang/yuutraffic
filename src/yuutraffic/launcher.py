@@ -12,9 +12,6 @@ import subprocess
 import sys
 
 from .config import load_config
-from .data_updater import KMBDataUpdater
-from .database_manager import KMBDatabaseManager
-from .web import should_update_data
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -62,37 +59,13 @@ def main():
     db_path = params["database"]["path"]
     logging.info("\n📊 Checking database...")
     if not os.path.exists(db_path):
-        logging.warning(f"❌ Database not found at: {db_path}")
-        logging.warning(
-            "Run: python -m yuutraffic.data_updater --all --db-path data/01_raw/kmb_data.db"
+        logging.error(f"❌ Database not found at: {db_path}")
+        logging.error("Run:  yuutraffic --update")
+        logging.error(
+            "      (refreshes KMB, Citybus, green minibus, MTR Bus, red minibus + map geometry)"
         )
         return
     logging.info(f"✅ Database found: {os.path.getsize(db_path) / 1024 / 1024:.1f} MB")
-
-    if params.get("schedule", {}).get("daily_update", {}).get("enabled", True):
-        logging.info("\n🔄 Checking data updates...")
-        try:
-            if should_update_data():
-                logging.info("📊 Data update required...")
-                updater = KMBDataUpdater(db_path=db_path)
-                db = KMBDatabaseManager(db_path=db_path)
-                routes = updater.fetch_routes()
-                if routes:
-                    db.insert_routes(routes)
-                    logging.info("   • Routes updated")
-                stops = updater.fetch_stops()
-                if stops:
-                    db.insert_stops(stops)
-                    logging.info("   • Stops updated")
-                else:
-                    logging.info(
-                        "   • Stops skipped (API may be restricted; using existing data)"
-                    )
-                logging.info("✅ Data update completed")
-            else:
-                logging.info("📊 Data is up to date")
-        except Exception as e:
-            logging.warning(f"⚠️ Data update failed: {e}")
 
     port = params["app"]["port"]
     host = params["app"]["host"]

@@ -81,15 +81,15 @@ jobs:
     
     - name: Code formatting with Black
       run: |
-        black --check --diff src/
+        black --check --diff src/ pages/ tests/
     
     - name: Import sorting with isort
       run: |
-        isort --check-only --diff src/
+        isort --check-only --diff src/ pages/ tests/
     
     - name: Lint with Ruff
       run: |
-        ruff check src/ --output-format=github
+        ruff check src/ pages/ tests/ --output-format=github
     
     - name: Type checking (if mypy config exists)
       run: |
@@ -100,12 +100,9 @@ jobs:
     
     - name: Test with pytest
       run: |
-        # Set environment variables for testing
         export TESTING=true
         export DATABASE_PATH=data/01_raw/kmb_data.db
-        
-        # Run tests with coverage
-        pytest tests/ --cov=src/yuutraffic --cov-report=xml --cov-report=html --tb=short -v || echo "Some tests may fail in CI environment"
+        pytest tests/ --cov=src/yuutraffic --cov-report=xml --cov-report=html --tb=short -v
     
     - name: Upload coverage reports
       uses: codecov/codecov-action@v5
@@ -119,7 +116,8 @@ jobs:
   build:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    # Staging deploy on develop needs artifacts; production release uses main
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     
     steps:
     - name: Checkout code

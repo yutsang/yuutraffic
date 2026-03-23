@@ -19,7 +19,7 @@ if _src not in sys.path:
 
 import pandas as pd
 import streamlit as st
-from streamlit_folium import folium_static
+from streamlit_folium import st_folium
 
 from yuutraffic.web import (
     create_enhanced_route_map,
@@ -33,7 +33,6 @@ from yuutraffic.web import (
     load_all_route_stops,
     load_traffic_data,
     mark_first_run_complete,
-    search_routes_with_directions,
     should_update_data,
 )
 
@@ -56,12 +55,12 @@ st.markdown(
 <style>
     :root { --bg-primary: #ffffff; --bg-secondary: #f8f9fa; --bg-accent: #e3f2fd; --text-primary: #333333; --text-secondary: #666666; --text-muted: #6c757d; --border-color: #e0e0e0; --border-light: #e9ecef; --blue: #007bff; --green: #28a745; --orange: #fd7e14; --red: #dc3545; }
     @media (prefers-color-scheme: dark) { :root { --bg-primary: #0e1117; --bg-secondary: #262730; --bg-accent: rgba(33, 150, 243, 0.1); --text-primary: #ffffff; --text-secondary: #cccccc; --text-muted: #aaaaaa; --border-color: rgba(255,255,255,0.1); --border-light: rgba(255,255,255,0.05); --blue: #2196f3; } }
-    .main .block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; max-width: 100% !important; }
-    html, body, .stApp { height: 100vh !important; overflow-x: hidden !important; }
-    .main { height: calc(100vh - 3rem) !important; overflow-y: auto !important; }
+    .main .block-container { padding: 1rem clamp(1rem, 3vw, 2rem) 1.5rem !important; max-width: 100% !important; width: 100% !important; }
+    html, body, .stApp { min-height: 100% !important; overflow-x: hidden !important; }
+    .main { min-height: 100% !important; overflow: visible !important; }
     .stMarkdown, .stColumns, .stColumn { margin-bottom: 0 !important; }
     .stColumn:nth-child(2) .stMarkdown, .stColumn:nth-child(2) div[data-testid="stMarkdownContainer"] { margin-bottom: 8px !important; padding: 0 !important; }
-    .stColumns, .stColumn { height: 100% !important; }
+    .stColumns, .stColumn { height: auto !important; }
     .stats-container { background: var(--bg-secondary); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid var(--border-color); }
     .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; margin-top: 1rem; }
     .stat-item { background: var(--bg-accent); padding: 1rem; border-radius: 6px; text-align: center; border: 1px solid var(--border-light); }
@@ -79,11 +78,11 @@ st.markdown(
     .route-detail.route-type { border-color: var(--green); color: var(--green); }
     .route-detail.route-origin { border-color: var(--orange); color: var(--orange); }
     .route-detail.route-destination { border-color: var(--red); color: var(--red); }
-    .main-content { max-width: 100%; padding: 0; height: 100%; }
-    .map-stops-container { display: flex; gap: 1rem; height: 650px; min-height: 600px; margin: 1rem 0; align-items: stretch; }
+    .main-content { max-width: 100%; padding: 0; }
+    .map-stops-container { display: flex; gap: 1rem; min-height: clamp(420px, 58vh, 760px); margin: 1rem 0; align-items: stretch; }
     .map-stops-container > div, .map-stops-container .stColumn { align-items: flex-start !important; }
-    .map-container { height: 100%; border-radius: 8px; border: 1px solid var(--border-color); overflow: hidden; background: var(--bg-secondary); }
-    .stops-container { height: 100%; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
+    .map-container { border-radius: 8px; border: 1px solid var(--border-color); overflow: hidden; background: var(--bg-secondary); }
+    .stops-container { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
     .welcome-container { text-align: center; padding: 3rem 2rem; background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border-color); margin: 2rem auto; max-width: 600px; }
     .welcome-icon { font-size: 4rem; margin-bottom: 1rem; color: var(--blue); }
     .stButton > button { border-radius: 8px !important; border: 1px solid var(--border-color) !important; font-weight: 500 !important; }
@@ -128,7 +127,7 @@ UI = {
     "en": {
         "title": "Hong Kong Public Transport Explorer",
         "search_routes": "Search Routes",
-        "search_placeholder": "e.g. 65, 65X, Central, Airport...",
+        "search_placeholder": "Route no., place, 小巴, MTR bus, Mong Kok…",
         "select_route": "Select route",
         "route_info": "Route Information",
         "route": "Route",
@@ -154,7 +153,7 @@ UI = {
     "tc": {
         "title": "香港公共交通工具探索",
         "search_routes": "搜索路線",
-        "search_placeholder": "例如 65, 65X, 中環, 機場...",
+        "search_placeholder": "路線號、地點、小巴、港鐵巴士、旺角…",
         "select_route": "選擇路線",
         "route_info": "路線資訊",
         "route": "路線",
@@ -203,54 +202,115 @@ def _setup_header():
     st.header(f"🔍 {_t('search_routes')}")
 
 
-def _filter_route_options(route_options, search_term: str, limit: int = 300):
-    """Filter options by route_id, origin, destination, Chinese names. Prefix matches first."""
+def _normalize_search_query(q: str) -> tuple[str, list[str]]:
+    """Lowercase, map common Chinese / English operator phrases, tokenize."""
+    s = (q or "").lower().strip()
+    repl = (
+        ("港鐵巴士", " mtr "),
+        ("港铁巴士", " mtr "),
+        ("mtr bus", " mtr "),
+        ("綠色小巴", " gmb "),
+        ("绿色小巴", " gmb "),
+        ("專線小巴", " gmb "),
+        ("专线小巴", " gmb "),
+        ("green minibus", " gmb "),
+        ("紅色小巴", " rmb "),
+        ("红色小巴", " rmb "),
+        ("red minibus", " rmb "),
+    )
+    for a, b in repl:
+        s = s.replace(a.lower(), b)
+    s = re.sub(r"[\s,，、]+", " ", s).strip()
+    tokens = [t for t in s.split() if t]
+    return s, tokens
+
+
+def _numeric_token_matches_route(token: str, route_id: str) -> bool:
+    """So '65' ranks 65 / 65X above 650 / A65."""
+    if not token.isdigit():
+        return False
+    rid = str(route_id).lower()
+    if not rid.startswith(token):
+        return False
+    rest = rid[len(token) :]
+    if not rest:
+        return True
+    return not rest[0].isdigit()
+
+
+def _score_route_option(o: dict, tokens: list[str], norm: str) -> int:
+    hay = " ".join(
+        [
+            str(o.get("route_id", "")),
+            str(o.get("display_route_id", "")),
+            str(o.get("text", "")),
+            str(o.get("origin", "")),
+            str(o.get("destination", "")),
+            str(o.get("origin_tc", "")),
+            str(o.get("destination_tc", "")),
+            str(o.get("depot_name", "")),
+            str(o.get("company", "")),
+            str(o.get("route_name", "")),
+        ]
+    ).lower()
+    disp = str(o.get("display_route_id") or o.get("route_id") or "").lower()
+    if not tokens:
+        return 50 if norm in hay else 0
+    score = 0
+    for t in tokens:
+        if t not in hay:
+            return -1
+        score += 8
+        if t == disp:
+            score += 120
+        elif disp.startswith(t):
+            score += 85
+        elif _numeric_token_matches_route(t, disp):
+            score += 95
+        elif t in disp:
+            score += 35
+    return score
+
+
+def _filter_route_options(route_options, search_term: str, limit: int = 400):
+    """Token-aware filter with scoring: route number prefix, operator keywords, places."""
     if not search_term.strip():
         return route_options[:limit]
-    s = search_term.lower().strip()
-    prefix_match = []
-    other_match = []
+    norm, tokens = _normalize_search_query(search_term)
+    scored: list[tuple[int, dict]] = []
     for o in route_options:
-        text = o["text"].lower()
-        rid = str(o["route_id"]).lower()
-        match = s in rid or s in text
-        if o.get("origin_tc") and s in (o["origin_tc"] or "").lower():
-            match = True
-        if o.get("destination_tc") and s in (o["destination_tc"] or "").lower():
-            match = True
-        if o.get("depot_name") and s in (o.get("depot_name") or "").lower():
-            match = True
-        if match:
-            if rid.startswith(s):
-                prefix_match.append(o)
-            else:
-                other_match.append(o)
-        if len(prefix_match) + len(other_match) >= limit:
-            break
-    return prefix_match + other_match
+        sc = _score_route_option(o, tokens, norm)
+        if sc < 0:
+            continue
+        scored.append((sc, o))
+    scored.sort(key=lambda x: (-x[0], str(x[1].get("text", ""))))
+    return [o for _, o in scored[:limit]]
 
 
 def _handle_route_selection(route_options):
-    st.markdown(f"**🔍 {_t('search_routes')}** — Type to filter, select route + direction")
-    search = st.text_input(
-        "Search",
-        key="route_search",
-        placeholder=_t("search_placeholder"),
-        label_visibility="collapsed",
-    )
+    st.markdown(f"**🔍 {_t('search_routes')}** — one row: type keywords, then pick route + direction")
+    bar = st.columns([1, 1.15], gap="small")
+    with bar[0]:
+        search = st.text_input(
+            "Search",
+            key="route_search",
+            placeholder=_t("search_placeholder"),
+            label_visibility="collapsed",
+        )
     filtered = _filter_route_options(route_options, search or "")
     if not filtered:
         st.info(_t("no_match"))
         return None
     option_texts = [o["text"] for o in filtered]
-    # Key includes search so when you type "80", dropdown resets and shows 80, 80M, 80K first (not 680)
-    selected = st.selectbox(
-        f"🚌 {_t('select_route')}",
-        option_texts,
-        key=f"route_select_{(search or '').strip()}",
-        index=0,
-        label_visibility="collapsed",
-    )
+    with bar[1]:
+        # Key includes search so when you type "80", dropdown resets and shows 80, 80M, 80K first (not 680)
+        selected = st.selectbox(
+            f"🚌 {_t('select_route')}",
+            option_texts,
+            key=f"route_select_{(search or '').strip()}",
+            index=0,
+            label_visibility="collapsed",
+        )
     if not selected:
         return None
     for o in filtered:
@@ -325,7 +385,7 @@ def _display_route_info(selected_route_data, first_stop, last_stop, first_tc, la
     <div style="display:flex;gap:0.5rem;align-items:stretch;margin-bottom:1rem;">
         <div style="flex:1;text-align:center;padding:0.3rem;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border-color);">
             <div style="font-size:0.65rem;color:var(--text-muted);">🚌 {_t('route')}</div>
-            <div style="font-size:0.9rem;font-weight:bold;color:var(--blue);">{selected_route_data['route_id']}</div>
+            <div style="font-size:0.9rem;font-weight:bold;color:var(--blue);">{selected_route_data.get('display_route_id', selected_route_data['route_id'])}</div>
         </div>
         <div style="flex:1;text-align:center;padding:0.3rem;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border-color);">
             <div style="font-size:0.65rem;color:var(--text-muted);">🏷️ {_t('type')}</div>
@@ -347,10 +407,10 @@ def _display_route_info(selected_route_data, first_stop, last_stop, first_tc, la
     """, unsafe_allow_html=True)
 
 
-def _render_map_and_stops(route_id, direction_stops, current_direction):
-    eta_key = f"{route_id}_{current_direction}"
+def _render_map_and_stops(route_key, direction_stops, current_direction, selected_route_data=None):
+    eta_key = f"{route_key}_{current_direction}"
     eta_dict = st.session_state.get("eta_dict", {}).get(eta_key, {})
-    map_height = 600
+    map_height = 560
     col1, col2 = st.columns([3, 1], gap="medium")
     # Render map and stops first (no ETA block) for faster perceived load
     with col1:
@@ -362,8 +422,15 @@ def _render_map_and_stops(route_id, direction_stops, current_direction):
                 current_direction,
                 eta_dict=eta_dict,
                 lang="tc",  # Map popups: Chi first, Eng second (matches stop list)
+                geometry_hash=selected_route_data.get("geometry_hash") if selected_route_data else None,
             )
-            folium_static(map_obj, width=1200, height=map_height)
+            st_folium(
+                map_obj,
+                height=map_height,
+                use_container_width=True,
+                returned_objects=[],
+                key=f"route_map_{route_key}_{current_direction}",
+            )
         except Exception as e:
             st.error(f"❌ Error creating map: {str(e)}")
             if os.getenv("DEBUG_MODE", "false").lower() == "true":
@@ -404,13 +471,27 @@ def _render_map_and_stops(route_id, direction_stops, current_direction):
         else:
             st.info("⚠️ No stops found for this route.")
     # Fetch ETAs after map/stops rendered (reduces blank page time)
-    if not eta_dict:
+    route_id = selected_route_data.get("route_id", "") if selected_route_data else ""
+    if not eta_dict and route_id and not direction_stops.empty:
         stop_ids = direction_stops["stop_id"].tolist()
+        seqs = direction_stops["sequence"].astype(int).tolist() if "sequence" in direction_stops.columns else []
         service_type = 1
         if "service_type" in direction_stops.columns and direction_stops["service_type"].notna().any():
             service_type = int(direction_stops["service_type"].iloc[0])
+        company = (selected_route_data or {}).get("company", "")
+        prov = (selected_route_data or {}).get("provider_route_id") or ""
+        prov = str(prov).strip() or None
         try:
-            eta_dict = fetch_etas_for_stops(route_id, stop_ids, service_type=service_type, minutes_format=True)
+            eta_dict = fetch_etas_for_stops(
+                route_id,
+                stop_ids,
+                service_type=service_type,
+                minutes_format=True,
+                company=company,
+                provider_route_id=prov,
+                route_direction=current_direction,
+                stop_sequences=seqs,
+            )
             if eta_dict:
                 if "eta_dict" not in st.session_state:
                     st.session_state.eta_dict = {}
@@ -468,19 +549,20 @@ def main():
     route_options = get_cached_route_options(routes_sorted)
     selected_route_data = _handle_route_selection(route_options)
     if selected_route_data:
+        route_key = selected_route_data.get("route_key", selected_route_data["route_id"])
         route_id = selected_route_data["route_id"]
         current_direction = _get_current_direction(selected_route_data)
-        st.session_state.selected_route = route_id
+        st.session_state.selected_route = route_key
         st.session_state.selected_direction = current_direction
-        route_stops = all_route_stops.get(route_id, pd.DataFrame())
+        route_stops = all_route_stops.get(route_key, pd.DataFrame())
         if route_stops.empty:
-            route_stops = get_route_stops_with_directions(route_id)
+            route_stops = get_route_stops_with_directions(route_key)
         if not route_stops.empty:
-            direction_stops = prepare_direction_stops(route_stops, current_direction, route_id)
+            direction_stops = prepare_direction_stops(route_stops, current_direction, route_key)
             first_stop, last_stop, first_tc, last_tc = _get_route_endpoints(direction_stops, selected_route_data)
             _display_route_info(selected_route_data, first_stop, last_stop, first_tc, last_tc, current_direction)
             if not direction_stops.empty:
-                _render_map_and_stops(route_id, direction_stops, current_direction)
+                _render_map_and_stops(route_key, direction_stops, current_direction, selected_route_data)
         else:
             st.warning("⚠️ No stop data available for this route")
     else:
