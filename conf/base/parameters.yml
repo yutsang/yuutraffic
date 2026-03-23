@@ -1,0 +1,121 @@
+# Traffic ETA Configuration Parameters
+
+# Application Settings
+app:
+  name: "Traffic ETA"
+  version: "1.0.0"
+  port: 8508
+  host: "localhost"
+  debug: false
+
+# API Endpoints and Links
+api:
+  kmb_base_url: "https://data.etabus.gov.hk/v1/transport/kmb"
+  osm_routing_url: "http://router.project-osrm.org/route/v1/driving"
+  endpoints:
+    routes: "/route"
+    stops: "/stop"
+    route_stops: "/route-stop"
+    eta: "/eta"
+  timeout: 30
+  max_retries: 3
+
+# Database Configuration
+database:
+  path: "data/01_raw/kmb_data.db"
+  backup_path: "data/02_backup"
+  connection_timeout: 30
+  enable_foreign_keys: true
+
+# Scheduling Configuration
+schedule:
+  daily_update:
+    enabled: true
+    time: "02:00"  # 2 AM daily
+    timezone: "Asia/Hong_Kong"
+  first_run_setup: true
+  update_routes: true
+  update_stops: true
+  update_route_stops: true
+
+# Map Configuration
+map:
+  center:
+    lat: 22.3193
+    lng: 114.1694
+  default_zoom: 11
+  auto_zoom:
+    enabled: true
+    route_zoom: 14
+    stop_zoom: 16
+  tiles: "OpenStreetMap"
+  width: 1200
+  height: 600
+
+# OSM Routing Configuration
+osm:
+  max_waypoints: 25
+  timeout: 10
+  fallback_to_direct: true
+  retry_attempts: 2
+  segment_size: 20  # For large routes
+
+# Route Types Configuration
+route_types:
+  circular: ["CIRCULAR", "(CIRCULAR)", "CIRCLE"]
+  special: ["X", "S", "P", "A", "E", "N", "R"]
+  express: ["X"]
+  night: ["N"] 
+  peak: ["P"]
+  airport: ["A", "E"]
+  special_service: ["S", "R"]
+
+# Search Configuration
+search:
+  show_both_directions: true
+  max_results: 100
+  case_sensitive: false
+  highlight_matches: true
+
+# Caching Configuration
+cache:
+  ttl: 3600  # 1 hour
+  enable_route_cache: true
+  enable_map_cache: true
+  cache_size_limit: 1000
+
+# UI Configuration
+ui:
+  theme_adaptive: true
+  show_progress_bars: true
+  enable_stop_highlighting: true
+  show_direction_badges: true
+  responsive_design: true
+
+# Performance Configuration
+performance:
+  max_concurrent_requests: 10
+  batch_size: 100
+  enable_compression: true
+  lazy_loading: true
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  file: "logs/traffic_eta.log"
+  max_size: "10MB"
+  backup_count: 5
+
+# Data Update Configuration
+data_update:
+  batch_size: 1000
+  progress_reporting: true
+  verify_data_integrity: true
+  cleanup_old_data: true
+
+# GitHub Actions CI/CD Configuration
+ci_cd:
+  python_version: "3.8"
+  test_database: "tests/test_data.db"
+  enable_coverage: true
+  coverage_threshold: 80
