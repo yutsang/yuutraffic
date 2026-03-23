@@ -376,6 +376,8 @@ The project includes a comprehensive GitHub Actions workflow:
 
 ## 🤝 Contributing
 
+Repository hygiene (`.gitignore`, GitHub Actions expectations, no `.gitattributes`) is documented in **[docs/GIT_AND_CI.md](docs/GIT_AND_CI.md)**.
+
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/amazing-feature`
 3. Make your changes following the coding standards
@@ -395,11 +397,11 @@ pip install black isort ruff pytest pytest-cov
 pre-commit install
 
 # Run formatting
-black src/
-isort src/
+black src/ pages/ tests/
+isort src/ pages/ tests/
 
 # Run linting
-ruff check src/
+ruff check src/ pages/ tests/
 ```
 
 ## 📄 License
