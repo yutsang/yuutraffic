@@ -27,7 +27,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 150
 
     steps:
       - uses: actions/checkout@v4
@@ -59,10 +59,24 @@ jobs:
               echo "update=true" >> "$GITHUB_OUTPUT" ;;
           esac
 
+      # Cache the transport data dir so subsequent runs can use the
+      # skip-if-catalog-complete fast path. First run still does the full
+      # fetch, but later runs hit the cache and complete in a few minutes.
+      - name: Restore cached transport data
+        if: steps.mode.outputs.update == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/01_raw/kmb_data.db
+            data/02_intermediate/route_geometry
+          key: transport-data-${{ github.run_id }}
+          restore-keys: |
+            transport-data-
+
       - name: Refresh transport data
         if: steps.mode.outputs.update == 'true'
         run: yuutraffic --update
-        timeout-minutes: 30
+        timeout-minutes: 120
 
       - name: Export static bundles
         if: steps.mode.outputs.update == 'true'
