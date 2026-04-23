@@ -1,0 +1,343 @@
+/* YuuTraffic widget styles
+   All selectors are prefixed with .yuu-* so they can be embedded on a host site
+   without clashing with its own styles. Override these variables from the host
+   site's CSS to match its theme. */
+
+:root {
+  --yuu-bg: #ffffff;
+  --yuu-surface: #ffffff;
+  --yuu-text: #1a1a1a;
+  --yuu-muted: #6c757d;
+  --yuu-accent: #e63946;
+  --yuu-accent-text: #ffffff;
+  --yuu-border: #e5e7eb;
+  --yuu-hover: #f3f4f6;
+  --yuu-radius: 10px;
+  --yuu-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  --yuu-font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+              "PingFang HK", "Noto Sans TC", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --yuu-bg: #0f172a;
+    --yuu-surface: #1e293b;
+    --yuu-text: #e2e8f0;
+    --yuu-muted: #94a3b8;
+    --yuu-border: #334155;
+    --yuu-hover: #334155;
+  }
+}
+
+.yuu-widget {
+  font-family: var(--yuu-font);
+  color: var(--yuu-text);
+  background: var(--yuu-bg);
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+  line-height: 1.5;
+}
+
+.yuu-header {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.yuu-title {
+  font-size: 1.4rem;
+  margin: 0;
+  color: var(--yuu-accent);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.yuu-search {
+  position: relative;
+  flex: 1;
+  min-width: 240px;
+}
+
+.yuu-search input {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 1rem;
+  font-family: inherit;
+  border: 1px solid var(--yuu-border);
+  border-radius: var(--yuu-radius);
+  background: var(--yuu-surface);
+  color: var(--yuu-text);
+  box-sizing: border-box;
+  transition: border-color 120ms;
+}
+
+.yuu-search input:focus {
+  outline: none;
+  border-color: var(--yuu-accent);
+  box-shadow: 0 0 0 3px rgba(230, 57, 70, 0.15);
+}
+
+.yuu-search-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--yuu-surface);
+  border: 1px solid var(--yuu-border);
+  border-radius: var(--yuu-radius);
+  max-height: 360px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: var(--yuu-shadow);
+}
+
+.yuu-search-result {
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--yuu-border);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.yuu-search-result:hover,
+.yuu-search-result.active {
+  background: var(--yuu-hover);
+}
+
+.yuu-search-result:last-child {
+  border-bottom: none;
+}
+
+.yuu-search-empty {
+  padding: 12px 14px;
+  color: var(--yuu-muted);
+  text-align: center;
+}
+
+.yuu-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  font-weight: 700;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.yuu-badge.KMB { background: #e63946; color: #fff; }
+.yuu-badge.CTB { background: #ffd23f; color: #1a1a1a; }
+.yuu-badge.GMB { background: #2a9d8f; color: #fff; }
+.yuu-badge.MTRB { background: #1d3557; color: #fff; }
+.yuu-badge.RMB { background: #d62828; color: #fff; }
+
+.yuu-route-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.yuu-route-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.yuu-route-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.yuu-direction-toggle {
+  display: flex;
+  gap: 4px;
+}
+
+.yuu-dir-btn {
+  padding: 4px 12px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  border: 1px solid var(--yuu-border);
+  background: var(--yuu-surface);
+  color: var(--yuu-text);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.yuu-dir-btn.active {
+  background: var(--yuu-accent);
+  color: var(--yuu-accent-text);
+  border-color: var(--yuu-accent);
+}
+
+.yuu-map {
+  height: 480px;
+  border-radius: var(--yuu-radius);
+  margin-bottom: 16px;
+  border: 1px solid var(--yuu-border);
+  z-index: 0;
+}
+
+.yuu-stops-pane {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .yuu-stops-pane { grid-template-columns: 1fr; }
+  .yuu-map { height: 320px; }
+  .yuu-title { font-size: 1.2rem; }
+}
+
+.yuu-stops {
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--yuu-border);
+  border-radius: var(--yuu-radius);
+  background: var(--yuu-surface);
+}
+
+.yuu-stop-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--yuu-border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-left: 3px solid transparent;
+}
+
+.yuu-stop-item:hover {
+  background: var(--yuu-hover);
+}
+
+.yuu-stop-item.active {
+  background: var(--yuu-hover);
+  border-left-color: var(--yuu-accent);
+}
+
+.yuu-stop-item:last-child {
+  border-bottom: none;
+}
+
+.yuu-stop-seq {
+  min-width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  background: var(--yuu-accent);
+  color: var(--yuu-accent-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.yuu-stop-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yuu-eta {
+  border: 1px solid var(--yuu-border);
+  border-radius: var(--yuu-radius);
+  padding: 14px;
+  background: var(--yuu-surface);
+  align-self: flex-start;
+}
+
+.yuu-eta-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.yuu-eta-fresh {
+  color: var(--yuu-muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.yuu-eta-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.yuu-eta-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--yuu-border);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.yuu-eta-item:last-child {
+  border: none;
+  padding-bottom: 0;
+}
+
+.yuu-eta-time {
+  font-weight: 600;
+  color: var(--yuu-accent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.yuu-eta-dest {
+  color: var(--yuu-muted);
+  font-size: 0.9rem;
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yuu-eta-empty,
+.yuu-eta-error {
+  color: var(--yuu-muted);
+  padding: 8px 0;
+  font-style: italic;
+}
+
+.yuu-eta-error { color: #d62828; }
+
+.yuu-welcome {
+  text-align: center;
+  padding: 48px 16px;
+  color: var(--yuu-muted);
+}
+
+.yuu-welcome-lead {
+  font-size: 1.1rem;
+  color: var(--yuu-text);
+  margin-bottom: 8px;
+}
+
+.yuu-hint {
+  font-size: 0.85rem;
+  margin-top: 8px;
+}
+
+.yuu-footer {
+  text-align: center;
+  color: var(--yuu-muted);
+  font-size: 0.8rem;
+  padding: 16px 0 0;
+}

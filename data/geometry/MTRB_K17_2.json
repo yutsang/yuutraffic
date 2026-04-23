@@ -1,0 +1,95 @@
+{
+  "hash": "bd0803e67e38f3d4",
+  "route_id": "MTRB_K17",
+  "route_key": "MTRB_K17",
+  "direction": 2,
+  "company": "MTR Bus",
+  "stops": [
+    {
+      "stop_id": "K17-U010",
+      "stop_name": "MTR Bus K17 · U010",
+      "stop_name_tc": "港鐵巴士 K17 · U010",
+      "sequence": 1,
+      "company": "MTR Bus",
+      "lat": 22.3955,
+      "lng": 113.986,
+      "osm_node_sequence": 0,
+      "osm_node_name": "MTR Bus K17 · U010"
+    },
+    {
+      "stop_id": "K17-U020",
+      "stop_name": "MTR Bus K17 · U020",
+      "stop_name_tc": "港鐵巴士 K17 · U020",
+      "sequence": 2,
+      "company": "MTR Bus",
+      "lat": 22.394066666666667,
+      "lng": 113.9845,
+      "osm_node_sequence": 0,
+      "osm_node_name": "MTR Bus K17 · U020"
+    },
+    {
+      "stop_id": "K17-U030",
+      "stop_name": "MTR Bus K17 · U030",
+      "stop_name_tc": "港鐵巴士 K17 · U030",
+      "sequence": 3,
+      "company": "MTR Bus",
+      "lat": 22.392633333333333,
+      "lng": 113.983,
+      "osm_node_sequence": 0,
+      "osm_node_name": "MTR Bus K17 · U030"
+    },
+    {
+      "stop_id": "K17-U040",
+      "stop_name": "MTR Bus K17 · U040",
+      "stop_name_tc": "港鐵巴士 K17 · U040",
+      "sequence": 4,
+      "company": "MTR Bus",
+      "lat": 22.3912,
+      "lng": 113.9815,
+      "osm_node_sequence": 9,
+      "osm_node_name": "MTR Bus K17 · U040"
+    }
+  ],
+  "coords": [
+    [
+      22.392131,
+      113.980831
+    ],
+    [
+      22.392131,
+      113.980831
+    ],
+    [
+      22.392131,
+      113.980831
+    ],
+    [
+      22.39212,
+      113.980769
+    ],
+    [
+      22.391779,
+      113.980829
+    ],
+    [
+      22.391701,
+      113.980838
+    ],
+    [
+      22.391623,
+      113.980839
+    ],
+    [
+      22.391545,
+      113.980833
+    ],
+    [
+      22.391466,
+      113.980819
+    ],
+    [
+      22.391389,
+      113.980797
+    ]
+  ]
+}

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="Hong Kong public transport explorer — route maps and live ETA from HK gov open data." />
+<title>YuuTraffic — Hong Kong Public Transport</title>
+<link rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin="" />
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+<div id="yuu" class="yuu-widget">
+  <header class="yuu-header">
+    <h1 class="yuu-title">YuuTraffic</h1>
+    <div class="yuu-search">
+      <input type="search"
+             id="yuu-search-input"
+             placeholder="Search route e.g. 65X, 1A, A22, 101…"
+             autocomplete="off"
+             spellcheck="false"
+             aria-label="Search route" />
+      <div id="yuu-search-results" class="yuu-search-results" hidden></div>
+    </div>
+  </header>
+
+  <main class="yuu-main">
+    <section id="yuu-welcome" class="yuu-welcome">
+      <p class="yuu-welcome-lead">Search a route number or destination to get started.</p>
+      <p class="yuu-hint">Static data refreshes nightly · Live ETA fetched directly from HK government open data</p>
+    </section>
+
+    <section id="yuu-route" class="yuu-route" hidden>
+      <div class="yuu-route-header">
+        <span id="yuu-route-badge" class="yuu-badge"></span>
+        <div class="yuu-route-heading">
+          <div id="yuu-route-title" class="yuu-route-title"></div>
+          <div class="yuu-direction-toggle" role="tablist">
+            <button data-dir="1" class="yuu-dir-btn active" role="tab">Outbound</button>
+            <button data-dir="2" class="yuu-dir-btn" role="tab">Inbound</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="yuu-map" class="yuu-map" aria-label="Route map"></div>
+
+      <div class="yuu-stops-pane">
+        <div id="yuu-stops" class="yuu-stops" aria-label="Stop list"></div>
+        <div id="yuu-eta" class="yuu-eta" hidden>
+          <header class="yuu-eta-header">
+            <strong id="yuu-eta-stop"></strong>
+            <span class="yuu-eta-fresh" id="yuu-eta-fresh"></span>
+          </header>
+          <ol id="yuu-eta-list" class="yuu-eta-list"></ol>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="yuu-footer">
+    <span id="yuu-meta">Loading…</span>
+  </footer>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""></script>
+<script src="./app.js" defer></script>
+</body>
+</html>
