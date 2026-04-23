@@ -17,16 +17,17 @@ yuutraffic --update    # first run only
 yuutraffic             # starts Streamlit on :8508
 ```
 
-## Deployment — GitHub Pages (pure static, $0 forever)
+## Deployment — GitHub Pages (pure static, $0 forever, locally driven)
 
 ### Architecture
 
 ```
-GitHub Actions (nightly 00:00 HKT)
-  └─ yuutraffic --update        (refreshes SQLite + geometry from HK gov APIs)
-  └─ scripts/export_static.py   (SQLite → JSON bundles under web/data/)
-  └─ commits refreshed data to main
-  └─ copies web/ + web/data/ to gh-pages branch
+Local Mac (the user)
+  └─ ./scripts/publish.sh (weekly, manual)
+     ├─ yuutraffic --update      (refreshes SQLite + geometry from HK gov APIs)
+     ├─ scripts/export_static.py (SQLite → JSON bundles in web/data/)
+     ├─ rsync web/ → gh-pages worktree, git push origin gh-pages
+     └─ if YUU_PERSONAL_SITE_PATH is set: rsync web/ → that folder too
 
 GitHub Pages
   └─ yutsang.github.io/yuutraffic/
@@ -42,38 +43,52 @@ User's browser
      All confirmed CORS-open (access-control-allow-origin: *).
 ```
 
-No backend, no Docker, no cloud spend. If HK APIs are down → user sees stale ETA with a clear error; static data unaffected.
+No backend, no Docker, no cloud spend, no cron on anything but the user's Mac. Frontend-only edits (HTML/CSS/JS) can also deploy via GH Actions on push to main — those don't need data refresh.
+
+### Why not GitHub Actions for the full refresh?
+
+We tried; it times out. `yuutraffic --update` takes 2+ hours on US GitHub runners because KMB's bulk `/stop` endpoint returns 403 to non-HK IPs, forcing per-stop fallback (~80 stops/min for 6649 stops). From HK (user's Mac) the same update finishes in 10–20 minutes.
 
 ### Cost
 
-**$0 forever.** GitHub Actions on a public repo has unlimited minutes; GitHub Pages serves unlimited bandwidth for static content.
+**$0 forever.** GitHub Pages serves unlimited bandwidth for static content; Actions on public repos has unlimited minutes (but we only use it for frontend-only redeploys).
 
 ### Files in this layout
 
-- `.github/workflows/refresh-data.yml` — nightly cron + manual trigger. Runs update, exports JSON, commits data, publishes gh-pages.
+- `scripts/publish.sh` — **the weekly command.** One-shot: update → export → push gh-pages → optional mirror.
 - `scripts/export_static.py` — converts SQLite → lean JSON for the browser.
-- `web/` — static frontend (index.html, app.js, style.css, vendor libs).
-- `web/data/` — generated each night; not hand-edited.
+- `.github/workflows/deploy-demo.yml` — frontend-only redeploys on push to main touching `web/*.html|css|js`. Pulls existing data from gh-pages, overlays new frontend code, republishes. No `--update`.
+- `web/` — static frontend (index.html, app.js, style.css).
+- `web/data/` — generated locally by `publish.sh`; gitignored. Only exists on gh-pages.
+- `.gh-pages-worktree/` — auto-managed git worktree used by `publish.sh`; gitignored.
 
 ### Manual route overrides
 
 Some routes need manual corrections (especially MTR Bus stop labels). Existing pattern:
 - `data/01_raw/mtr_bus_stop_overrides.json` — per-stop name overrides.
-- Future: any per-route geometry adjustments → commit to `data/01_raw/` as an overrides JSON.
+- Future: any per-route geometry adjustments → similar JSON files under `data/01_raw/`.
 
 Workflow for manual edits:
-1. `git pull` — pick up latest auto-refreshed data.
-2. Edit the override JSON in `data/01_raw/`.
-3. `yuutraffic --update` locally to regenerate geometry + DB with the override applied. Verify in Streamlit.
-4. Commit and push. Next nightly job picks it up; the browser version updates within 24h.
+1. Edit the override JSON.
+2. Run `./scripts/publish.sh` — `yuutraffic --update` respects overrides when it regenerates the DB.
+3. Verify on `yutsang.github.io/yuutraffic/` after push.
 
-### Local sync
+### Mirror to personal site
 
-`git pull` is enough — the nightly job commits updated `data/01_raw/kmb_data.db` and `data/02_intermediate/route_geometry/*.json` to main. Your Streamlit app picks up the new data without running `--update`.
+The publish script optionally rsyncs the built `web/` tree into a folder on the user's personal site repo. Set once in shell rc:
+
+```bash
+export YUU_PERSONAL_SITE_PATH=~/Desktop/Github/yutsang.github.io/projects/yuutraffic
+```
+
+Then `publish.sh` copies there automatically. User commits + pushes the personal site separately (script doesn't touch that repo's git state to avoid surprises).
 
 ### Rollback
 
-Data regressions roll back by reverting the latest data commit on `main` and re-running the workflow with `skip_update: true` (dispatch input on the workflow).
+```bash
+git log --oneline origin/gh-pages -n 10
+git push origin <good-sha>:gh-pages --force   # only if the user authorises
+```
 
 ## Conventions
 

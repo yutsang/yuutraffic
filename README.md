@@ -9,6 +9,27 @@
 
 **Traffic ETA** is a comprehensive, production-ready web application for exploring Hong Kong's public transport system. Built with modern technologies and best practices, it provides detailed route analysis, interactive mapping, and real-time data visualization for the entire KMB (Kowloon Motor Bus) network.
 
+> ### 🔄 Reminder — Weekly publish for the live demo
+>
+> The live static site at **<https://yutsang.github.io/yuutraffic/>** does **not** self-refresh. Run this on your Mac about once a week (or whenever you've edited override JSONs under `data/01_raw/`):
+>
+> ```bash
+> cd ~/Desktop/Github/yuutraffic
+> ./scripts/publish.sh
+> ```
+>
+> Takes ~10–20 min (the `yuutraffic --update` step fetches fresh route/stop data from HK gov APIs). Browser-side live ETA is unaffected — it's fetched directly from KMB/MTR/etc. on every user interaction, so stale server data only means new/renamed routes take up to a week to appear.
+>
+> To also mirror the built site into your personal site repo, set this once in `~/.zshrc` (or `~/.bashrc`):
+>
+> ```bash
+> export YUU_PERSONAL_SITE_PATH=~/Desktop/Github/yutsang.github.io/projects/yuutraffic
+> ```
+>
+> The script will rsync `web/` there after a successful publish; commit + push that repo separately.
+>
+> Full deploy notes in [`docs/DEPLOY_STATIC.md`](docs/DEPLOY_STATIC.md).
+
 ### ✨ Key Features
 
 ### 🚌 Complete Coverage

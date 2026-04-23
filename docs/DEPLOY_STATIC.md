@@ -1,103 +1,109 @@
 # Demo site deployment (GitHub Pages, pure static, $0 forever)
 
-YuuTraffic also ships as a **browser-only** widget at `yutsang.github.io/yuutraffic/`. It reuses the same nightly data pipeline as the Streamlit app but rewrites the UI in vanilla JS so it can run on GitHub Pages without a backend.
+YuuTraffic's public demo is a **browser-only** widget at `yutsang.github.io/yuutraffic/`. It reuses the Python app's data pipeline but rewrites the UI in vanilla JS so it can run on GitHub Pages without a backend.
 
 ## Architecture in one breath
 
 ```
-GitHub Actions (nightly 02:00 HKT)
-  ├─ yuutraffic --update             (refreshes SQLite + geometry)
-  ├─ scripts/export_static.py         (writes web/data/{routes,stops,meta}.json + geometry/*.json)
-  └─ peaceiris/actions-gh-pages       (publishes web/ to gh-pages branch)
+Local Mac (weekly, manual)
+  └─ ./scripts/publish.sh
+     ├─ yuutraffic --update         (refreshes SQLite + geometry in HK, ~10–20 min)
+     ├─ scripts/export_static.py     (writes web/data/{routes,stops,meta}.json + geometry/*.json)
+     ├─ rsync web/ → gh-pages worktree → git push origin gh-pages
+     └─ rsync web/ → $YUU_PERSONAL_SITE_PATH (if set)
 
 GitHub Pages → yutsang.github.io/yuutraffic/
 Browser loads UI + static data, fetches live ETA straight from:
   data.etabus.gov.hk (KMB), rt.data.gov.hk (CTB/MTR), data.etagmb.gov.hk (GMB)
 ```
 
-## Enabling GitHub Pages (one-time)
+## Why local, not GitHub Actions?
 
-1. Push `.github/workflows/deploy-demo.yml`, `scripts/export_static.py`, and `web/` to `main`.
-2. **Settings → Pages** on the repo:
-   - Source: **Deploy from a branch**
-   - Branch: **`gh-pages`** (will appear after first successful workflow run)
-   - Folder: **`/ (root)`**
-3. Manually trigger the first build:
-   ```bash
-   gh workflow run "Deploy demo site"
-   gh run watch
-   ```
-   First run takes ~15–30 min (the full `yuutraffic --update` against HK gov APIs).
-4. Once green, the demo is live at **`https://yutsang.github.io/yuutraffic/`**.
+We tried. `yuutraffic --update` takes 2+ hours on US GitHub runners because KMB's bulk `/stop` endpoint returns 403 to non-HK IPs and the code falls back to per-stop calls (~80 stops/min for 6649 stops). From your Mac in Hong Kong, the same update finishes in **10–20 minutes**.
 
-## Triggers
+GitHub Actions is still used, just for **frontend-only** redeploys — see `.github/workflows/deploy-demo.yml`.
 
-| When | What runs |
-|---|---|
-| Daily 02:00 HKT (cron) | Full refresh + redeploy. |
-| Manual dispatch | Full refresh unless `skip_update=true`. |
-| Push to `main` touching `web/**` or `scripts/export_static.py` | Frontend-only redeploy (reuses last published data, no API hammering). |
+## One-time setup
 
-## Local development
+### 1. First publish (seeds the `gh-pages` branch)
 
-You don't need to push to iterate on the frontend. Run a local static server:
+From the repo root on your Mac:
 
 ```bash
-# one-time: populate data by running the Streamlit app's update at least once
-yuutraffic --update
-python scripts/export_static.py
-
-# serve web/ directly
-cd web && python -m http.server 8080
-# open http://localhost:8080
+pip install -e .             # if not already
+./scripts/publish.sh         # ~15 min total
 ```
 
-## Local data sync from the demo site
+First run handles everything:
+- Creates the orphan `gh-pages` branch automatically.
+- Runs `yuutraffic --update` (full transport data fetch).
+- Exports JSON bundles.
+- Pushes to `gh-pages`.
 
-Rather than running a full `yuutraffic --update` locally (slow), you can pull the pre-built bundles from gh-pages:
+### 2. Enable GitHub Pages
+
+After the first push:
+
+1. `https://github.com/yutsang/yuutraffic/settings/pages`
+2. **Source:** Deploy from a branch
+3. **Branch:** `gh-pages` · Folder: `/ (root)` · **Save**
+4. Wait ~1 min → visit `https://yutsang.github.io/yuutraffic/`
+
+### 3. (Optional) Enable personal-site mirror
+
+Add to `~/.zshrc` (or `~/.bashrc`):
 
 ```bash
-curl -o web/data/routes.json   https://yutsang.github.io/yuutraffic/data/routes.json
-curl -o web/data/stops.json    https://yutsang.github.io/yuutraffic/data/stops.json
-curl -o web/data/meta.json     https://yutsang.github.io/yuutraffic/data/meta.json
-# geometry/*.json — copy the ones you need, or rsync via git:
-git clone --depth 1 --branch gh-pages git@github.com:yutsang/yuutraffic.git /tmp/pages
-cp -a /tmp/pages/data/geometry/. web/data/geometry/
+export YUU_PERSONAL_SITE_PATH=~/Desktop/Github/yutsang.github.io/projects/yuutraffic
 ```
+
+Reload the shell. Future `publish.sh` runs will rsync `web/` there automatically. You still commit + push in the personal-site repo yourself.
+
+## Weekly workflow
+
+Run this once a week (or whenever you edit override JSONs):
+
+```bash
+cd ~/Desktop/Github/yuutraffic
+./scripts/publish.sh
+```
+
+Flags:
+- `--skip-update` — reuse existing local data (frontend-only republish)
+- `--no-mirror` — skip the personal-site sync even if env var is set
 
 ## Manual route adjustments
 
-The nightly job respects existing override files under `data/01_raw/`, e.g. `mtr_bus_stop_overrides.json`. To fix something:
-
-1. Edit the override JSON locally.
-2. `yuutraffic --update` to verify the fix applies to the SQLite + geometry.
-3. Commit the override and push. The nightly job picks it up; the demo reflects the change within 24h (or trigger `gh workflow run "Deploy demo site"` for instant rebuild).
-
-> **Note:** `data/**` is gitignored by default. To commit an override file, un-ignore that specific path (e.g. add `!data/01_raw/mtr_bus_stop_overrides.json` to `.gitignore`) or stage it with `git add -f`.
+1. Edit override JSON under `data/01_raw/` (e.g. `mtr_bus_stop_overrides.json`).
+2. `./scripts/publish.sh` — `yuutraffic --update` picks up overrides during the regenerate step.
+3. Verify at `yutsang.github.io/yuutraffic/`.
 
 ## Embedding on your main site
 
-Once the demo confirms acceptable performance, integrate into `ytsang.com`:
+Once the demo URL is confirmed working, drop this into your project detail page:
 
-### Option 1 — iframe (zero JS)
 ```html
 <iframe src="https://yutsang.github.io/yuutraffic/"
-        style="width:100%; height:800px; border:none;"
+        style="width:100%; height:85vh; border:0; border-radius:12px;"
         loading="lazy"
         title="YuuTraffic"></iframe>
 ```
 
-### Option 2 — theme inheritance
-The widget exposes CSS variables (see `web/style.css`). Override them from your main site by injecting a stylesheet before `style.css` loads, or by linking the host site's stylesheet via a query param. Future work.
+Or, if you've set `YUU_PERSONAL_SITE_PATH` to a folder inside your main site repo and committed it, you can link/embed the in-repo copy instead — then the page is served from your own domain without cross-origin concerns.
 
 ## Rollback
 
 ```bash
-# list recent gh-pages commits
 git log --oneline origin/gh-pages -n 10
-
-# revert to a specific commit
 git push origin <good-sha>:gh-pages --force
 ```
 
-Or re-run the workflow after reverting the source commit on `main`.
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `yuutraffic: command not found` | `pip install -e .` in the repo root. |
+| `rsync: command not found` | `brew install rsync`. |
+| Push rejected (non-fast-forward) | Another machine pushed since your last pull. Run `git -C .gh-pages-worktree pull --rebase` then retry `publish.sh`. |
+| 404 at `yutsang.github.io/yuutraffic/` | Check Settings → Pages → confirm `gh-pages` branch is selected and site is marked "Your site is live at…". |
+| Geometry missing for a route | `./scripts/publish.sh` again without `--skip-update`. |
