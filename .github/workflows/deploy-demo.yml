@@ -1,0 +1,98 @@
+name: Deploy demo site
+
+on:
+  schedule:
+    # 02:00 HKT = 18:00 UTC (previous day). Matches the app's local daily refresh.
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+    inputs:
+      skip_update:
+        description: "Skip transport data refresh (reuse last published data)"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "scripts/export_static.py"
+      - ".github/workflows/deploy-demo.yml"
+
+concurrency:
+  group: deploy-demo
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Decide mode
+        id: mode
+        shell: bash
+        run: |
+          case "${{ github.event_name }}" in
+            schedule)
+              echo "update=true" >> "$GITHUB_OUTPUT" ;;
+            workflow_dispatch)
+              if [[ "${{ inputs.skip_update }}" == "true" ]]; then
+                echo "update=false" >> "$GITHUB_OUTPUT"
+              else
+                echo "update=true" >> "$GITHUB_OUTPUT"
+              fi ;;
+            push)
+              echo "update=false" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "update=true" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Refresh transport data
+        if: steps.mode.outputs.update == 'true'
+        run: yuutraffic --update
+        timeout-minutes: 30
+
+      - name: Export static bundles
+        if: steps.mode.outputs.update == 'true'
+        run: python scripts/export_static.py
+
+      - name: Reuse previously published data (frontend-only rebuild)
+        if: steps.mode.outputs.update != 'true'
+        shell: bash
+        run: |
+          set -e
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages:gh-pages
+            git worktree add /tmp/gh-pages gh-pages
+            mkdir -p web/data
+            if [[ -d /tmp/gh-pages/data ]]; then
+              cp -a /tmp/gh-pages/data/. web/data/
+              echo "Reused data from gh-pages."
+            else
+              echo "::warning::gh-pages has no data/ directory yet."
+            fi
+          else
+            echo "::error::No gh-pages branch exists. Run the workflow once without skip_update to seed it."
+            exit 1
+          fi
+
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./web
+          publish_branch: gh-pages
+          keep_files: false
+          commit_message: "deploy: ${{ github.sha }} (${{ steps.mode.outputs.update == 'true' && 'with data refresh' || 'frontend only' }})"
