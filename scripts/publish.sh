@@ -103,6 +103,16 @@ rsync -a --delete \
 # Always keep a .nojekyll so GitHub Pages serves files starting with _
 touch "$PAGES_WORKTREE/.nojekyll"
 
+# Cache-bust the asset URLs in index.html so visitors get fresh JS/CSS even
+# when GitHub Pages caches them with max-age=14400.
+VER="$(date -u +%Y%m%d%H%M%S)-$(git -C "$REPO_ROOT" rev-parse --short=8 HEAD 2>/dev/null || echo 'local')"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  sed -i '' "s/__ASSET_VER__/${VER}/g" "$PAGES_WORKTREE/index.html"
+else
+  sed -i "s/__ASSET_VER__/${VER}/g" "$PAGES_WORKTREE/index.html"
+fi
+echo "  asset version: ${VER}"
+
 # ---- 5. Commit + push to gh-pages ---------------------------------------
 
 cd "$PAGES_WORKTREE"

@@ -54,6 +54,13 @@ jobs:
             echo "Reused $(ls web/data | wc -l) data items from gh-pages."
           fi
 
+      - name: Cache-bust asset URLs
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          VER="$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA:0:8}"
+          sed -i "s/__ASSET_VER__/${VER}/g" web/index.html
+          echo "asset version: ${VER}"
+
       - name: Publish to gh-pages
         if: steps.check.outputs.ready == 'true'
         uses: peaceiris/actions-gh-pages@v4

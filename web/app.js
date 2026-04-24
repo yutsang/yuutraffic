@@ -128,7 +128,29 @@
       console.error("Failed to load bundles", err);
       $("yuu-meta").textContent =
         "Failed to load transport data. The build may not have run yet.";
+      return;
     }
+
+    // Ask for location on load. If permission already granted, runs
+    // silently. If not, the browser shows its native prompt — user can
+    // allow/deny without affecting the rest of the page.
+    maybeAutoLocate();
+  }
+
+  async function maybeAutoLocate() {
+    if (!navigator.geolocation) return;
+    try {
+      if (navigator.permissions && navigator.permissions.query) {
+        const p = await navigator.permissions.query({ name: "geolocation" });
+        if (p.state === "denied") return;   // respect prior denial
+      }
+    } catch { /* Safari may not support permissions API — fall through */ }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => showNearbyRoutes(pos.coords.latitude, pos.coords.longitude)
+                 .catch((e) => console.warn(e)),
+      (err) => console.info("Location unavailable:", err.message),
+      { enableHighAccuracy: false, timeout: 12_000, maximumAge: 5 * 60_000 }
+    );
   }
 
   function applyEmbedMode() {
