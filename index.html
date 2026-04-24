@@ -6,14 +6,12 @@
 <meta name="description" content="Hong Kong public transport explorer — route maps and live ETA from HK gov open data." />
 <title>YuuTraffic — Hong Kong Public Transport</title>
 
-<!-- Preconnect to everything the widget hits on boot -->
 <link rel="preconnect" href="https://unpkg.com" crossorigin />
 <link rel="preconnect" href="https://a.basemaps.cartocdn.com" crossorigin />
 <link rel="preconnect" href="https://data.etabus.gov.hk" crossorigin />
 <link rel="preconnect" href="https://rt.data.gov.hk" crossorigin />
 <link rel="preconnect" href="https://data.etagmb.gov.hk" crossorigin />
 
-<!-- Preload the critical data bundle so it streams while JS parses -->
 <link rel="preload" href="./data/routes.json" as="fetch" crossorigin />
 
 <link rel="stylesheet"
@@ -33,17 +31,20 @@
              autocomplete="off"
              spellcheck="false"
              aria-label="Search route" />
+      <button type="button"
+              id="yuu-near-me"
+              class="yuu-near-me"
+              title="Find routes near me"
+              aria-label="Find routes near me">📍 Near me</button>
       <div id="yuu-search-results" class="yuu-search-results" hidden></div>
     </div>
   </header>
 
-  <!-- Map is ALWAYS rendered (not inside a hidden section) so Leaflet can
-       initialise against a sized container and load tiles immediately. -->
   <div id="yuu-map" class="yuu-map" aria-label="Route map"></div>
 
   <main class="yuu-main">
     <section id="yuu-welcome" class="yuu-welcome">
-      <p class="yuu-welcome-lead">Search a route number or destination above to see stops and live ETA.</p>
+      <p class="yuu-welcome-lead">Search a route number or destination, or tap <strong>📍 Near me</strong> to see what passes your current location.</p>
       <p class="yuu-hint">Static data refreshes weekly · Live ETA fetched directly from HK government open data</p>
       <p class="yuu-legend">
         <span class="yuu-eta-time yuu-live">⚡ Live ETA</span>
@@ -56,7 +57,10 @@
       <div class="yuu-route-header">
         <span id="yuu-route-badge" class="yuu-badge"></span>
         <div class="yuu-route-heading">
-          <div id="yuu-route-title" class="yuu-route-title"></div>
+          <div class="yuu-route-title-row">
+            <span id="yuu-company-label" class="yuu-company-label"></span>
+            <div id="yuu-route-title" class="yuu-route-title"></div>
+          </div>
           <div class="yuu-direction-toggle" role="tablist">
             <button data-dir="1" class="yuu-dir-btn active" role="tab">Outbound</button>
             <button data-dir="2" class="yuu-dir-btn" role="tab">Inbound</button>
@@ -69,7 +73,14 @@
         <div id="yuu-eta" class="yuu-eta" hidden>
           <header class="yuu-eta-header">
             <strong id="yuu-eta-stop"></strong>
-            <span class="yuu-eta-fresh" id="yuu-eta-fresh"></span>
+            <div class="yuu-eta-controls">
+              <span class="yuu-eta-fresh" id="yuu-eta-fresh"></span>
+              <button type="button"
+                      id="yuu-eta-refresh"
+                      class="yuu-refresh-btn"
+                      title="Refresh now"
+                      aria-label="Refresh ETA now">↻</button>
+            </div>
           </header>
           <ol id="yuu-eta-list" class="yuu-eta-list"></ol>
         </div>

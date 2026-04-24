@@ -22,6 +22,34 @@
                         Roboto, "Helvetica Neue", "PingFang HK",
                         "Noto Sans TC", Arial, sans-serif);
   --yuu-container:    var(--container, 72rem);
+
+  /* Default (no route selected): accent theme */
+  --yuu-route-color:       var(--yuu-accent);
+  --yuu-route-color-soft:  var(--yuu-accent-soft);
+  --yuu-route-text:        var(--yuu-accent-text);
+}
+
+/* ---- Per-company theme. Applied when a route is picked ------------- */
+
+#yuu[data-company="KMB"]  {
+  --yuu-route-color: #e63946; --yuu-route-text: #ffffff;
+  --yuu-route-color-soft: #fde4e6;
+}
+#yuu[data-company="CTB"]  {
+  --yuu-route-color: #f5b800; --yuu-route-text: #1a1a1a;
+  --yuu-route-color-soft: #fff5cc;
+}
+#yuu[data-company="GMB"]  {
+  --yuu-route-color: #2a9d8f; --yuu-route-text: #ffffff;
+  --yuu-route-color-soft: #d4ede9;
+}
+#yuu[data-company="MTRB"] {
+  --yuu-route-color: #1d3557; --yuu-route-text: #ffffff;
+  --yuu-route-color-soft: #d7dee8;
+}
+#yuu[data-company="RMB"]  {
+  --yuu-route-color: #d62828; --yuu-route-text: #ffffff;
+  --yuu-route-color-soft: #fad9d9;
 }
 
 /* ---- Layout ---------------------------------------------------------- */
@@ -39,7 +67,7 @@
 
 .yuu-header {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   align-items: center;
   margin-bottom: 16px;
   flex-wrap: wrap;
@@ -53,7 +81,6 @@
   letter-spacing: -0.01em;
 }
 
-/* Hide our header when embedded inside a host page that has its own chrome */
 .yuu-embedded .yuu-title,
 .yuu-embedded .yuu-footer {
   display: none;
@@ -69,11 +96,15 @@
 .yuu-search {
   position: relative;
   flex: 1;
-  min-width: 240px;
+  min-width: 220px;
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
 }
 
 .yuu-search input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 10px 14px;
   font-size: 1rem;
   font-family: inherit;
@@ -91,6 +122,29 @@
   box-shadow: 0 0 0 3px rgba(0, 145, 218, 0.18);
 }
 
+.yuu-near-me {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: var(--yuu-accent);
+  color: #ffffff;
+  border: 1px solid var(--yuu-accent);
+  border-radius: var(--yuu-radius);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.yuu-near-me:hover:not(:disabled) {
+  background: var(--yuu-accent-bright);
+  border-color: var(--yuu-accent-bright);
+}
+
+.yuu-near-me:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
 .yuu-search-results {
   position: absolute;
   top: calc(100% + 4px);
@@ -99,10 +153,23 @@
   background: var(--yuu-surface);
   border: 1px solid var(--yuu-border);
   border-radius: var(--yuu-radius);
-  max-height: 360px;
+  max-height: 420px;
   overflow-y: auto;
   z-index: 1000;
   box-shadow: var(--yuu-shadow-md);
+}
+
+.yuu-search-heading {
+  padding: 8px 14px;
+  color: var(--yuu-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--yuu-border);
+  background: var(--yuu-bg);
+  position: sticky;
+  top: 0;
 }
 
 .yuu-search-result {
@@ -119,8 +186,25 @@
   background: var(--yuu-accent-soft);
 }
 
-.yuu-search-result:last-child {
-  border-bottom: none;
+.yuu-search-result:last-child { border-bottom: none; }
+
+.yuu-search-result-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.yuu-search-result-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yuu-search-result-co {
+  font-size: 0.75rem;
+  color: var(--yuu-muted);
+  margin-top: 2px;
 }
 
 .yuu-search-empty {
@@ -143,9 +227,9 @@
 }
 
 .yuu-badge.KMB  { background: #e63946; color: #fff; }
-.yuu-badge.CTB  { background: #ffd23f; color: #1a1a1a; }
+.yuu-badge.CTB  { background: #f5b800; color: #1a1a1a; }
 .yuu-badge.GMB  { background: #2a9d8f; color: #fff; }
-.yuu-badge.MTRB { background: var(--yuu-accent); color: #fff; }
+.yuu-badge.MTRB { background: #1d3557; color: #fff; }
 .yuu-badge.RMB  { background: #d62828; color: #fff; }
 
 /* ---- Route panel ---------------------------------------------------- */
@@ -162,6 +246,22 @@
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+  flex: 1;
+}
+
+.yuu-route-title-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.yuu-company-label {
+  font-size: 0.75rem;
+  color: var(--yuu-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
 }
 
 .yuu-route-title {
@@ -193,9 +293,9 @@
 }
 
 .yuu-dir-btn.active {
-  background: var(--yuu-accent);
-  color: var(--yuu-accent-text);
-  border-color: var(--yuu-accent);
+  background: var(--yuu-route-color);
+  color: var(--yuu-route-text);
+  border-color: var(--yuu-route-color);
 }
 
 .yuu-map {
@@ -205,7 +305,7 @@
   border: 1px solid var(--yuu-border);
   box-shadow: var(--yuu-shadow-sm);
   z-index: 0;
-  background: #eef2f7;  /* placeholder while tiles load */
+  background: #eef2f7;
 }
 
 .yuu-stops-pane {
@@ -223,7 +323,7 @@
 /* ---- Stops list ----------------------------------------------------- */
 
 .yuu-stops {
-  max-height: 420px;
+  max-height: 460px;
   overflow-y: auto;
   border: 1px solid var(--yuu-border);
   border-radius: var(--yuu-radius);
@@ -242,12 +342,12 @@
 }
 
 .yuu-stop-item:hover {
-  background: var(--yuu-accent-soft);
+  background: var(--yuu-route-color-soft);
 }
 
 .yuu-stop-item.active {
-  background: var(--yuu-accent-soft);
-  border-left-color: var(--yuu-accent);
+  background: var(--yuu-route-color-soft);
+  border-left-color: var(--yuu-route-color);
 }
 
 .yuu-stop-item:last-child {
@@ -258,22 +358,37 @@
   min-width: 28px;
   height: 28px;
   border-radius: 14px;
-  background: var(--yuu-accent);
-  color: var(--yuu-accent-text);
+  background: var(--yuu-route-color);
+  color: var(--yuu-route-text);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 0.85rem;
-  font-weight: 600;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
-.yuu-stop-name {
+.yuu-stop-labels {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.yuu-stop-name {
+  font-size: 0.95rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.yuu-stop-name-tc {
+  font-size: 0.78rem;
+  color: var(--yuu-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
 }
 
 /* ---- ETA panel ------------------------------------------------------ */
@@ -296,10 +411,54 @@
   flex-wrap: wrap;
 }
 
+.yuu-eta-stop-tc {
+  color: var(--yuu-muted);
+  font-weight: 400;
+  font-size: 0.85rem;
+  margin-left: 4px;
+}
+
+.yuu-eta-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .yuu-eta-fresh {
   color: var(--yuu-muted);
   font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
+}
+
+.yuu-refresh-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--yuu-border);
+  background: var(--yuu-surface);
+  color: var(--yuu-text);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms;
+}
+
+.yuu-refresh-btn:hover {
+  background: var(--yuu-route-color-soft);
+  border-color: var(--yuu-route-color);
+}
+
+.yuu-refresh-btn.spinning {
+  animation: yuu-spin 600ms linear;
+}
+
+@keyframes yuu-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 .yuu-eta-list {
@@ -322,31 +481,32 @@
 }
 
 .yuu-eta-time {
-  font-weight: 600;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  padding: 2px 8px;
+  padding: 2px 10px;
   border-radius: 999px;
   font-size: 0.9rem;
   letter-spacing: 0.01em;
 }
 
-/* Live ETA from real-time vehicle data */
+/* Live ETA (real-time GPS prediction) — vivid */
 .yuu-eta-time.yuu-live {
-  background: var(--yuu-accent-soft);
-  color: var(--yuu-accent);
+  background: #dcfce7;   /* green-100 */
+  color:      #166534;   /* green-800 */
 }
 
-/* Timetable-based (no GPS fix available — KMB marks these "Scheduled Bus") */
+/* Scheduled fallback — muted amber, lighter font-weight to distinguish */
 .yuu-eta-time.yuu-scheduled {
-  background: #fef3c7;   /* amber-100 */
-  color:      #92400e;   /* amber-800 */
+  background: #fef3c7;
+  color:      #92400e;
+  font-weight: 500;
 }
 
-/* About to arrive (<= 0 min remaining) */
+/* About to arrive — red pulse */
 .yuu-eta-time.yuu-arriving {
-  background: #fee2e2;   /* red-100 */
-  color:      #991b1b;   /* red-800 */
+  background: #fee2e2;
+  color:      #991b1b;
   animation: yuu-pulse 1.6s ease-in-out infinite;
 }
 
