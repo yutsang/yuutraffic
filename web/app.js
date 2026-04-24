@@ -30,6 +30,55 @@
     RMB: "Red Minibus",
   };
 
+  // Heuristic labels derived from the HK route-number suffix/prefix. Used to
+  // surface schedule hints like "Peak only" / "Holiday only" without needing
+  // a full timetable data source.
+  function scheduleBadges(id) {
+    const s = (id || "").toUpperCase();
+    const out = [];
+    if (s.startsWith("N"))            out.push({ en: "Night only",    tc: "通宵" });
+    else if (s.startsWith("A"))       out.push({ en: "Airport",       tc: "機場" });
+    else if (s.startsWith("E"))       out.push({ en: "Airport",       tc: "機場" });
+    if (s.endsWith("X"))              out.push({ en: "Express",       tc: "特快" });
+    else if (s.endsWith("P"))         out.push({ en: "Peak only",     tc: "繁忙時段" });
+    else if (s.endsWith("S"))         out.push({ en: "Special",       tc: "特別班次" });
+    else if (s.endsWith("R"))         out.push({ en: "Race days",     tc: "賽馬日" });
+    else if (s.endsWith("M"))         out.push({ en: "MTR feeder",    tc: "地鐵接駁" });
+    else if (s.endsWith("H"))         out.push({ en: "Holiday only",  tc: "只於假日" });
+    else if (s.endsWith("B"))         out.push({ en: "Boundary",      tc: "邊境" });
+    return out;
+  }
+
+  // Operators for which the precomputed geometry uses best-effort coordinates
+  // (the public APIs don't expose exact stop locations for these companies).
+  const APPROXIMATE_OPERATORS = new Set(["MTRB", "RMB"]);
+
+  // Simple RGB midpoint blend so joint routes get a single blended colour
+  // (KMB red + Citybus yellow → orange) instead of a diagonal split.
+  function blendHex(c1, c2) {
+    const parse = (h) => {
+      h = h.replace("#", "");
+      return [parseInt(h.slice(0, 2), 16),
+              parseInt(h.slice(2, 4), 16),
+              parseInt(h.slice(4, 6), 16)];
+    };
+    const [r1, g1, b1] = parse(c1);
+    const [r2, g2, b2] = parse(c2);
+    const hex = (v) => Math.round(v).toString(16).padStart(2, "0");
+    return `#${hex((r1 + r2) / 2)}${hex((g1 + g2) / 2)}${hex((b1 + b2) / 2)}`;
+  }
+
+  function withAlpha(hex, alpha) {
+    const parse = (h) => {
+      h = h.replace("#", "");
+      return [parseInt(h.slice(0, 2), 16),
+              parseInt(h.slice(2, 4), 16),
+              parseInt(h.slice(4, 6), 16)];
+    };
+    const [r, g, b] = parse(hex);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
   const state = {
     routes: [],
     stops: null,            // lazy
@@ -286,12 +335,15 @@
       const coLabel = r.partners && r.partners.length > 1
         ? r.partners.map((p) => COMPANY_LABEL[p.co] || p.co).join(" + ")
         : (COMPANY_LABEL[r.co] || r.co);
+      const chips = scheduleBadges(r.id).map((b) =>
+        `<span class="yuu-search-chip">${escapeHtml(b.en)} · ${escapeHtml(b.tc)}</span>`
+      ).join("");
       return `<div class="yuu-search-result" data-rk="${escapeHtml(r.rk)}">
         <span class="yuu-badge ${r.co}">${escapeHtml(r.id)}</span>
         <div class="yuu-search-result-body">
           <span class="yuu-search-result-name">${escapeHtml(displayEn(r.oe))} ↔ ${escapeHtml(displayEn(r.de))}</span>
           ${tc}
-          <span class="yuu-search-result-co">${escapeHtml(coLabel)}</span>
+          <span class="yuu-search-result-co">${escapeHtml(coLabel)}${chips ? " " + chips : ""}</span>
         </div>
       </div>`;
     }).join("");
@@ -375,17 +427,20 @@
     // Theme the widget by company (colours polyline, stop-seq badges, etc.)
     const yuu = $("yuu");
     yuu.dataset.company = route.co || "";
-    // Joint routes: expose partner colours as inline CSS vars so gradient
-    // stop-seq badges and bi-coloured polylines can adopt both operators.
+    // Joint routes: blend the partner colours into one accent so the map
+    // and stop badges show a unified hue (KMB red + Citybus yellow = orange).
     if (route.partners && route.partners.length > 1) {
       const colors = route.partners.map((p) => companyColor(p.co));
+      const blended = colors.reduce((a, b) => blendHex(a, b));
       yuu.dataset.joint = "true";
-      yuu.style.setProperty("--yuu-partner-1", colors[0]);
-      yuu.style.setProperty("--yuu-partner-2", colors[1] || colors[0]);
+      yuu.style.setProperty("--yuu-route-color", blended);
+      yuu.style.setProperty("--yuu-route-color-soft", withAlpha(blended, 0.18));
+      yuu.style.setProperty("--yuu-route-text", "#ffffff");
     } else {
       yuu.dataset.joint = "false";
-      yuu.style.removeProperty("--yuu-partner-1");
-      yuu.style.removeProperty("--yuu-partner-2");
+      yuu.style.removeProperty("--yuu-route-color");
+      yuu.style.removeProperty("--yuu-route-color-soft");
+      yuu.style.removeProperty("--yuu-route-text");
     }
 
     $("yuu-search-input").value = route.id;
@@ -401,10 +456,21 @@
     badge.textContent = route.id;
     badge.className = `yuu-badge ${route.co}`;
 
-    $("yuu-company-label").textContent =
-      route.partners && route.partners.length > 1
-        ? route.partners.map((p) => COMPANY_LABEL[p.co] || p.co).join(" + ")
-        : (COMPANY_LABEL[route.co] || route.co);
+    const operatorLabel = route.partners && route.partners.length > 1
+      ? route.partners.map((p) => COMPANY_LABEL[p.co] || p.co).join(" + ")
+      : (COMPANY_LABEL[route.co] || route.co);
+    const badges = scheduleBadges(route.id).map((b) =>
+      `<span class="yuu-schedule-chip">${escapeHtml(b.en)} · ${escapeHtml(b.tc)}</span>`
+    ).join("");
+    const allApprox = (route.partners && route.partners.length > 0
+                        ? route.partners
+                        : [{ co: route.co }])
+                      .every((p) => APPROXIMATE_OPERATORS.has(p.co));
+    const approxChip = allApprox
+      ? `<span class="yuu-schedule-chip yuu-approx-chip" title="Coordinates are best-effort">Approximate route · 路線僅供參考</span>`
+      : "";
+    $("yuu-company-label").innerHTML =
+      `<span class="yuu-op-text">${escapeHtml(operatorLabel)}</span>${badges}${approxChip}`;
 
     const dirs = route.dirs && route.dirs.length ? route.dirs : [1];
     document.querySelectorAll(".yuu-dir-btn").forEach((btn) => {
@@ -564,25 +630,16 @@
     }
 
     const route = state.selectedRoute;
-    const partners = route?.partners || [];
-    const isJoint = partners.length > 1;
-    const primaryColor = companyColor(route?.co);
-    const secondaryColor = isJoint ? companyColor(partners[1].co) : null;
+    const isJoint = route?.partners && route.partners.length > 1;
+    const primaryColor = isJoint
+      ? route.partners.map((p) => companyColor(p.co)).reduce((a, b) => blendHex(a, b))
+      : companyColor(route?.co);
 
     const coords = Array.isArray(geo.coords) ? geo.coords : [];
     if (coords.length > 1) {
-      // Primary solid line in operator colour.
       state.routeLayer = L.polyline(coords, {
-        color: primaryColor, weight: 5, opacity: 0.85,
+        color: primaryColor, weight: 5, opacity: 0.88,
       }).addTo(state.map);
-      // Joint routes: overlay a dashed line in the second operator colour
-      // so the line visibly carries both brands.
-      if (isJoint && secondaryColor) {
-        state.partnerLayer = L.polyline(coords, {
-          color: secondaryColor, weight: 3, opacity: 0.95,
-          dashArray: "10, 14",
-        }).addTo(state.map);
-      }
     } else if (geo.stops && geo.stops.length > 1) {
       const fallback = geo.stops
         .map((s) => [s.lat, s.lng])
