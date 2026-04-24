@@ -60,6 +60,29 @@
     ));
   }
 
+  // Client-side fallback for the title-casing the pipeline already applies.
+  // Keeps old cached data rendering correctly until the user re-runs
+  // publish.sh to regenerate the bundles.
+  const TITLE_PRESERVE = new Set([
+    "MTR", "LRT", "HK", "HKIA", "HKU", "HKUST", "CUHK", "UST", "POLYU",
+    "GPO", "AEL", "TCL", "TWL", "KTL", "EAL", "ISL", "SIL", "WRL",
+    "KMB", "LWB", "CTB", "NWFB", "GMB", "MOL", "SEL", "DRL",
+    "HKCEC", "IFC", "YMCA", "HSBC", "ICBC", "UK", "US",
+  ]);
+
+  function displayEn(s) {
+    if (!s) return s;
+    // If already mixed case, leave as-is
+    if (/[a-z]/.test(s)) return s;
+    return s.split(/(\s+|[()/\-])/).map((w) => {
+      if (!w || /^\s+$/.test(w) || "()/-".includes(w)) return w;
+      if (/\d/.test(w)) return w;
+      const up = w.toUpperCase();
+      if (TITLE_PRESERVE.has(up)) return up;
+      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    }).join("");
+  }
+
   function fetchJson(url, opts) {
     return fetch(url, opts).then((r) => {
       if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
@@ -256,12 +279,15 @@
       const tc = (r.ot && r.dt)
         ? `<span class="yuu-search-result-tc">${escapeHtml(r.ot)} ↔ ${escapeHtml(r.dt)}</span>`
         : "";
+      const coLabel = r.partners && r.partners.length > 1
+        ? r.partners.map((p) => COMPANY_LABEL[p.co] || p.co).join(" + ")
+        : (COMPANY_LABEL[r.co] || r.co);
       return `<div class="yuu-search-result" data-rk="${escapeHtml(r.rk)}">
         <span class="yuu-badge ${r.co}">${escapeHtml(r.id)}</span>
         <div class="yuu-search-result-body">
-          <span class="yuu-search-result-name">${escapeHtml(r.oe)} ↔ ${escapeHtml(r.de)}</span>
+          <span class="yuu-search-result-name">${escapeHtml(displayEn(r.oe))} ↔ ${escapeHtml(displayEn(r.de))}</span>
           ${tc}
-          <span class="yuu-search-result-co">${escapeHtml(COMPANY_LABEL[r.co] || r.co)}</span>
+          <span class="yuu-search-result-co">${escapeHtml(coLabel)}</span>
         </div>
       </div>`;
     }).join("");
@@ -358,7 +384,10 @@
     badge.textContent = route.id;
     badge.className = `yuu-badge ${route.co}`;
 
-    $("yuu-company-label").textContent = COMPANY_LABEL[route.co] || route.co;
+    $("yuu-company-label").textContent =
+      route.partners && route.partners.length > 1
+        ? route.partners.map((p) => COMPANY_LABEL[p.co] || p.co).join(" + ")
+        : (COMPANY_LABEL[route.co] || route.co);
 
     const dirs = route.dirs && route.dirs.length ? route.dirs : [1];
     document.querySelectorAll(".yuu-dir-btn").forEach((btn) => {
@@ -536,7 +565,7 @@
         color: "#ffffff", weight: 2, fillOpacity: 1,
       }).addTo(state.map);
       const tc = s.stop_name_tc ? ` · ${s.stop_name_tc}` : "";
-      marker.bindTooltip(`${s.sequence}. ${s.stop_name || s.stop_id}${tc}`);
+      marker.bindTooltip(`${s.sequence}. ${displayEn(s.stop_name) || s.stop_id}${tc}`);
       marker.on("click", () => selectStop(s));
       state.stopLayers.push(marker);
     });
@@ -559,7 +588,7 @@
       <div class="yuu-stop-item" data-stop-id="${escapeHtml(s.stop_id)}" data-seq="${s.sequence}">
         <span class="yuu-stop-seq">${s.sequence}</span>
         <div class="yuu-stop-labels">
-          <span class="yuu-stop-name">${escapeHtml(s.stop_name || s.stop_id)}</span>
+          <span class="yuu-stop-name">${escapeHtml(displayEn(s.stop_name) || s.stop_id)}</span>
           ${s.stop_name_tc
             ? `<span class="yuu-stop-name-tc">${escapeHtml(s.stop_name_tc)}</span>`
             : ""}
@@ -586,7 +615,7 @@
 
     $("yuu-eta").hidden = false;
     $("yuu-eta-stop").innerHTML =
-      `${stop.sequence}. ${escapeHtml(stop.stop_name || stop.stop_id)}` +
+      `${stop.sequence}. ${escapeHtml(displayEn(stop.stop_name) || stop.stop_id)}` +
       (stop.stop_name_tc ? ` <span class="yuu-eta-stop-tc">${escapeHtml(stop.stop_name_tc)}</span>` : "");
     if (!sameStop) {
       $("yuu-eta-list").innerHTML = '<li class="yuu-eta-empty">Loading…</li>';
@@ -648,36 +677,45 @@
     const s = state.selectedStop;
     if (!r || !s) return;
 
-    const buildUrl = ETA_PROVIDERS[r.co];
-    if (!buildUrl) {
-      renderEta([], `Live ETA not yet supported for ${r.co}`);
-      stopEtaPolling();
-      return;
-    }
-    const url = buildUrl(r, s);
-    if (!url) {
-      renderEta([], "Missing provider identifier for this route");
+    // Joint routes (e.g. KMB+CTB 101) have a `partners` list; query every
+    // operator and merge results. Solo routes fall through to [self].
+    const operators = (r.partners && r.partners.length > 0)
+      ? r.partners
+      : [{ co: r.co, id: r.id, pid: r.pid, st: r.st, rk: r.rk }];
+
+    const viable = operators
+      .map((op) => ({ op, url: (ETA_PROVIDERS[op.co] || (() => null))(op, s) }))
+      .filter((x) => x.url);
+    if (viable.length === 0) {
+      renderEta([], "Live ETA not yet supported for this route");
       stopEtaPolling();
       return;
     }
 
-    try {
-      const raw = await fetchJson(url, { cache: "no-store" });
-      const parsed = parseEta(r.co, raw);
-      const filtered = filterEta(r, state.selectedDirection, parsed);
-      renderEta(filtered, null);
-      if (state.etaErrorCount > 0) {
-        state.etaErrorCount = 0;
-        clearInterval(state.etaTimer);
-        state.etaTimer = setInterval(pollEta, POLL_MS);
-      }
-    } catch (err) {
-      console.error("ETA fetch failed", err);
+    const results = await Promise.allSettled(
+      viable.map(({ op, url }) =>
+        fetchJson(url, { cache: "no-store" })
+          .then((raw) => parseEta(op.co, raw).map((e) => ({ ...e, _co: op.co })))
+      )
+    );
+
+    const successes = results.filter((r2) => r2.status === "fulfilled");
+    if (successes.length === 0) {
       state.etaErrorCount += 1;
       const backoff = Math.min(POLL_MS * 2 ** (state.etaErrorCount - 1), MAX_BACKOFF_MS);
       clearInterval(state.etaTimer);
       state.etaTimer = setInterval(pollEta, backoff);
       renderEta([], `Failed to fetch ETA (retry in ${Math.round(backoff / 1000)}s)`);
+      return;
+    }
+
+    const merged = successes.flatMap((r2) => r2.value);
+    const filtered = filterEta(r, state.selectedDirection, merged);
+    renderEta(filtered, null);
+    if (state.etaErrorCount > 0) {
+      state.etaErrorCount = 0;
+      clearInterval(state.etaTimer);
+      state.etaTimer = setInterval(pollEta, POLL_MS);
     }
   }
 
@@ -747,9 +785,13 @@
       const cls = arriving ? "yuu-arriving" : (e.scheduled ? "yuu-scheduled" : "yuu-live");
       const badge = e.scheduled ? "⏱" : "⚡";
       const kind = e.scheduled ? "Scheduled" : "Live";
+      // Tag each row with the operator when the route is jointly operated.
+      const op = (state.selectedRoute.partners && state.selectedRoute.partners.length > 1 && e._co)
+        ? `<span class="yuu-eta-op">${escapeHtml(COMPANY_LABEL[e._co] || e._co)}</span>`
+        : "";
       return `<li class="yuu-eta-item">
         <span class="yuu-eta-time ${cls}" title="${kind}">${badge} ${escapeHtml(etaText(e.eta))}</span>
-        <span class="yuu-eta-dest">${escapeHtml(e.dest || "")}</span>
+        <span class="yuu-eta-dest">${op}${escapeHtml(displayEn(e.dest) || "")}</span>
       </li>`;
     }).join("");
   }
