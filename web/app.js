@@ -7,7 +7,9 @@
   const DATA_BASE = "./data";
   const POLL_MS = 20_000;
   const MAX_BACKOFF_MS = 120_000;
-  const IDLE_STOP_MS = 10 * 60_000; // stop polling after 10 min of inactivity
+  const IDLE_STOP_MS = 10 * 60_000;
+  const NEAR_ME_RADIUS_M = 500;
+  const NEAR_ME_MAX_STOPS = 20;
 
   const ETA_PROVIDERS = {
     KMB: (route, stop) =>
@@ -20,9 +22,18 @@
         : null,
   };
 
+  const COMPANY_LABEL = {
+    KMB: "KMB / LWB",
+    CTB: "Citybus",
+    GMB: "Green Minibus",
+    MTRB: "MTR Bus",
+    RMB: "Red Minibus",
+  };
+
   const state = {
     routes: [],
-    stops: {},
+    stops: null,            // lazy
+    stopRoutes: null,       // lazy
     meta: null,
     selectedRoute: null,
     selectedDirection: 1,
@@ -32,6 +43,7 @@
     routeLayer: null,
     stopLayers: [],
     selectedStopLayer: null,
+    youAreHereLayer: null,
     etaTimer: null,
     etaErrorCount: 0,
     lastUserActionAt: Date.now(),
@@ -72,21 +84,38 @@
     state.lastUserActionAt = Date.now();
   }
 
+  // Natural sort: "1" < "1A" < "2" < "10" < "100A"
+  function compareRouteIds(a, b) {
+    return String(a).localeCompare(String(b), "en", {
+      numeric: true, sensitivity: "base",
+    });
+  }
+
+  // Haversine distance in metres
+  function distanceM(lat1, lng1, lat2, lng2) {
+    const toRad = (d) => d * Math.PI / 180;
+    const R = 6371000;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+              Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }
+
   // -------------------------------------------------------------------- init
 
   async function init() {
     applyEmbedMode();
-    // Map can render before any data arrives — blank base layer shows instantly.
     initMap();
     initSearch();
     initDirectionToggle();
     initActivityTracking();
     initVisibility();
+    initRefreshButton();
+    initNearMeButton();
     $("yuu-meta").textContent = "Loading routes…";
 
-    // Only routes.json + meta.json are needed for search / welcome.
-    // stops.json is deferred — Phase 1 doesn't use it (geometry files carry
-    // per-route stop coords). Trip Planner / MTR routing will load it lazily.
     try {
       const [routes, meta] = await Promise.all([
         fetchJson(`${DATA_BASE}/routes.json`),
@@ -104,15 +133,26 @@
 
   function applyEmbedMode() {
     const params = new URLSearchParams(location.search);
-    if (params.get("embed") === "1" || params.has("embed")) {
+    if (params.has("embed")) {
       document.documentElement.classList.add("yuu-embedded");
     }
   }
 
   async function ensureStopsLoaded() {
-    if (state.stops && Object.keys(state.stops).length > 0) return state.stops;
+    if (state.stops) return state.stops;
     state.stops = await fetchJson(`${DATA_BASE}/stops.json`);
     return state.stops;
+  }
+
+  async function ensureStopRoutesLoaded() {
+    if (state.stopRoutes) return state.stopRoutes;
+    try {
+      state.stopRoutes = await fetchJson(`${DATA_BASE}/stop_routes.json`);
+    } catch (err) {
+      console.warn("stop_routes.json not available — re-run publish.sh", err);
+      state.stopRoutes = {};
+    }
+    return state.stopRoutes;
   }
 
   function renderMeta() {
@@ -125,7 +165,7 @@
     });
     const c = m.counts || {};
     $("yuu-meta").textContent =
-      `${c.routes || state.routes.length} routes · ${c.stops || Object.keys(state.stops).length} stops · refreshed ${date}`;
+      `${c.routes || state.routes.length} routes · refreshed ${date}`;
   }
 
   // ------------------------------------------------------------------ search
@@ -157,33 +197,42 @@
     const query = q.trim().toUpperCase();
     if (query.length < 1) { results.hidden = true; return; }
 
-    const matches = state.routes
-      .filter((r) => {
-        const id = (r.id || "").toUpperCase();
-        if (id === query) return true;
-        if (id.startsWith(query)) return true;
-        if (id.includes(query)) return true;
-        if ((r.oe || "").toUpperCase().includes(query)) return true;
-        if ((r.de || "").toUpperCase().includes(query)) return true;
-        if ((r.ot || "").includes(q)) return true;
-        if ((r.dt || "").includes(q)) return true;
-        return false;
-      })
-      .slice(0, 25);
+    const prefix = [];
+    const contains = [];
+    for (const r of state.routes) {
+      const id = (r.id || "").toUpperCase();
+      if (id.startsWith(query)) { prefix.push(r); continue; }
+      if (id.includes(query) ||
+          (r.oe || "").toUpperCase().includes(query) ||
+          (r.de || "").toUpperCase().includes(query) ||
+          (r.ot || "").includes(q) || (r.dt || "").includes(q)) {
+        contains.push(r);
+      }
+    }
+    prefix.sort((a, b) => compareRouteIds(a.id, b.id));
+    contains.sort((a, b) => compareRouteIds(a.id, b.id));
+    const matches = prefix.concat(contains).slice(0, 30);
 
+    renderSearchResults(matches);
+  }
+
+  function renderSearchResults(matches, title) {
+    const results = $("yuu-search-results");
     if (matches.length === 0) {
       results.innerHTML = '<div class="yuu-search-empty">No matching routes</div>';
       results.hidden = false;
       return;
     }
-
-    results.innerHTML = matches
-      .map((r) => `
-        <div class="yuu-search-result" data-rk="${escapeHtml(r.rk)}">
-          <span class="yuu-badge ${r.co}">${escapeHtml(r.id)}</span>
-          <span>${escapeHtml(r.oe)} ↔ ${escapeHtml(r.de)}</span>
-        </div>`)
-      .join("");
+    const heading = title
+      ? `<div class="yuu-search-heading">${escapeHtml(title)}</div>` : "";
+    results.innerHTML = heading + matches.map((r) => `
+      <div class="yuu-search-result" data-rk="${escapeHtml(r.rk)}">
+        <span class="yuu-badge ${r.co}">${escapeHtml(r.id)}</span>
+        <div class="yuu-search-result-body">
+          <span class="yuu-search-result-name">${escapeHtml(r.oe)} ↔ ${escapeHtml(r.de)}</span>
+          <span class="yuu-search-result-co">${escapeHtml(COMPANY_LABEL[r.co] || r.co)}</span>
+        </div>
+      </div>`).join("");
     results.hidden = false;
 
     results.querySelectorAll(".yuu-search-result[data-rk]").forEach((node) => {
@@ -194,6 +243,75 @@
     });
   }
 
+  // ---------------------------------------------------------------- near me
+
+  function initNearMeButton() {
+    const btn = $("yuu-near-me");
+    btn.addEventListener("click", async () => {
+      bumpActivity();
+      if (!navigator.geolocation) {
+        alert("Geolocation is not supported in this browser.");
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = "📍 Locating…";
+      try {
+        const pos = await new Promise((resolve, reject) =>
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000,
+          })
+        );
+        await showNearbyRoutes(pos.coords.latitude, pos.coords.longitude);
+      } catch (err) {
+        console.warn("Geolocation failed", err);
+        alert("Could not get your location. Make sure location permission is allowed.");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "📍 Near me";
+      }
+    });
+  }
+
+  async function showNearbyRoutes(lat, lng) {
+    // Drop a "you are here" marker
+    if (state.youAreHereLayer) state.map.removeLayer(state.youAreHereLayer);
+    state.youAreHereLayer = L.circleMarker([lat, lng], {
+      radius: 8, fillColor: "#3b82f6", color: "#ffffff",
+      weight: 3, fillOpacity: 0.95,
+    }).bindTooltip("You are here").addTo(state.map);
+    state.map.setView([lat, lng], 15);
+
+    const [stops, stopRoutes] = await Promise.all([
+      ensureStopsLoaded(),
+      ensureStopRoutesLoaded(),
+    ]);
+
+    // Find nearest N stops within radius
+    const nearby = [];
+    for (const [stopId, s] of Object.entries(stops)) {
+      const d = distanceM(lat, lng, s.la, s.lg);
+      if (d <= NEAR_ME_RADIUS_M) nearby.push({ stopId, d, stop: s });
+    }
+    nearby.sort((a, b) => a.d - b.d);
+    const topStops = nearby.slice(0, NEAR_ME_MAX_STOPS);
+
+    // Collect route keys serving any nearby stop
+    const routeKeys = new Set();
+    for (const n of topStops) {
+      (stopRoutes[n.stopId] || []).forEach((rk) => routeKeys.add(rk));
+    }
+
+    const routes = state.routes
+      .filter((r) => routeKeys.has(r.rk))
+      .sort((a, b) => compareRouteIds(a.id, b.id));
+
+    if (routes.length === 0) {
+      renderSearchResults([], "No routes found within 500 m");
+      return;
+    }
+    renderSearchResults(routes, `Routes passing within 500 m — ${topStops.length} stops nearby`);
+  }
+
   // ------------------------------------------------------------- route panel
 
   async function selectRoute(route) {
@@ -202,6 +320,9 @@
     state.selectedStop = null;
     state.selectedDirection = (route.dirs && route.dirs[0]) || 1;
 
+    // Theme the widget by company (colours polyline, stop-seq badges, etc.)
+    $("yuu").dataset.company = route.co || "";
+
     $("yuu-search-input").value = route.id;
     $("yuu-search-results").hidden = true;
     $("yuu-welcome").hidden = true;
@@ -209,15 +330,14 @@
     $("yuu-eta").hidden = true;
     stopEtaPolling();
 
-    // Section visibility may change available map width on mobile; poke
-    // Leaflet so it recomputes tile grid.
     if (state.map) setTimeout(() => state.map.invalidateSize(), 0);
 
     const badge = $("yuu-route-badge");
     badge.textContent = route.id;
     badge.className = `yuu-badge ${route.co}`;
 
-    // Direction button visibility
+    $("yuu-company-label").textContent = COMPANY_LABEL[route.co] || route.co;
+
     const dirs = route.dirs && route.dirs.length ? route.dirs : [1];
     document.querySelectorAll(".yuu-dir-btn").forEach((btn) => {
       const d = Number(btn.dataset.dir);
@@ -294,12 +414,24 @@
   function initMap() {
     state.map = L.map("yuu-map", { zoomControl: true })
       .setView([22.3193, 114.1694], 11);
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png", {
+    // Voyager: colourful CARTO basemap — faster than osm.org and friendlier
+    // on the eye than light_all (which was grayscale).
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      maxZoom: 19,
       subdomains: "abcd",
+      maxZoom: 20,
     }).addTo(state.map);
+  }
+
+  function companyColor(co) {
+    return ({
+      KMB: "#e63946",
+      CTB: "#f5b800",  // slightly darker yellow for better legibility on maps
+      GMB: "#2a9d8f",
+      MTRB: "#1d3557",
+      RMB: "#d62828",
+    })[co] || "#00338d";
   }
 
   function renderRouteOnMap(geo) {
@@ -314,10 +446,12 @@
       state.selectedStopLayer = null;
     }
 
+    const color = companyColor(state.selectedRoute?.co);
+
     const coords = Array.isArray(geo.coords) ? geo.coords : [];
     if (coords.length > 1) {
       state.routeLayer = L.polyline(coords, {
-        color: "#e63946", weight: 4, opacity: 0.85,
+        color, weight: 5, opacity: 0.85,
       }).addTo(state.map);
     } else if (geo.stops && geo.stops.length > 1) {
       const fallback = geo.stops
@@ -331,10 +465,11 @@
     (geo.stops || []).forEach((s) => {
       if (typeof s.lat !== "number" || typeof s.lng !== "number") return;
       const marker = L.circleMarker([s.lat, s.lng], {
-        radius: 5, fillColor: "#e63946",
+        radius: 5, fillColor: color,
         color: "#ffffff", weight: 2, fillOpacity: 1,
       }).addTo(state.map);
-      marker.bindTooltip(`${s.sequence}. ${s.stop_name || s.stop_name_tc || s.stop_id}`);
+      const tc = s.stop_name_tc ? ` · ${s.stop_name_tc}` : "";
+      marker.bindTooltip(`${s.sequence}. ${s.stop_name || s.stop_id}${tc}`);
       marker.on("click", () => selectStop(s));
       state.stopLayers.push(marker);
     });
@@ -353,13 +488,16 @@
       el.innerHTML = '<div class="yuu-search-empty">No stops listed</div>';
       return;
     }
-    el.innerHTML = stops
-      .map((s) => `
-        <div class="yuu-stop-item" data-stop-id="${escapeHtml(s.stop_id)}" data-seq="${s.sequence}">
-          <span class="yuu-stop-seq">${s.sequence}</span>
-          <span class="yuu-stop-name">${escapeHtml(s.stop_name || s.stop_name_tc || s.stop_id)}</span>
-        </div>`)
-      .join("");
+    el.innerHTML = stops.map((s) => `
+      <div class="yuu-stop-item" data-stop-id="${escapeHtml(s.stop_id)}" data-seq="${s.sequence}">
+        <span class="yuu-stop-seq">${s.sequence}</span>
+        <div class="yuu-stop-labels">
+          <span class="yuu-stop-name">${escapeHtml(s.stop_name || s.stop_id)}</span>
+          ${s.stop_name_tc
+            ? `<span class="yuu-stop-name-tc">${escapeHtml(s.stop_name_tc)}</span>`
+            : ""}
+        </div>
+      </div>`).join("");
 
     el.querySelectorAll(".yuu-stop-item").forEach((node) => {
       node.addEventListener("click", () => {
@@ -371,6 +509,8 @@
 
   function selectStop(stop) {
     bumpActivity();
+    // Allow re-clicking the already-selected stop to force a manual refresh.
+    const sameStop = state.selectedStop && state.selectedStop.stop_id === stop.stop_id;
     state.selectedStop = stop;
 
     document.querySelectorAll(".yuu-stop-item").forEach((n) =>
@@ -378,27 +518,42 @@
     );
 
     $("yuu-eta").hidden = false;
-    $("yuu-eta-stop").textContent =
-      `${stop.sequence}. ${stop.stop_name || stop.stop_name_tc || stop.stop_id}`;
-    $("yuu-eta-list").innerHTML = '<li class="yuu-eta-empty">Loading…</li>';
-    $("yuu-eta-fresh").textContent = "";
+    $("yuu-eta-stop").innerHTML =
+      `${stop.sequence}. ${escapeHtml(stop.stop_name || stop.stop_id)}` +
+      (stop.stop_name_tc ? ` <span class="yuu-eta-stop-tc">${escapeHtml(stop.stop_name_tc)}</span>` : "");
+    if (!sameStop) {
+      $("yuu-eta-list").innerHTML = '<li class="yuu-eta-empty">Loading…</li>';
+      $("yuu-eta-fresh").textContent = "";
+    }
 
     if (state.selectedStopLayer) state.map.removeLayer(state.selectedStopLayer);
+    const color = companyColor(state.selectedRoute?.co);
     if (typeof stop.lat === "number" && typeof stop.lng === "number") {
       state.selectedStopLayer = L.circleMarker([stop.lat, stop.lng], {
-        radius: 9, fillColor: "#ffd23f",
-        color: "#e63946", weight: 3, fillOpacity: 1,
+        radius: 10, fillColor: color,
+        color: "#ffffff", weight: 4, fillOpacity: 1,
       }).addTo(state.map);
       state.map.setView([stop.lat, stop.lng], 16, { animate: true });
     }
 
     startEtaPolling();
-    // Scroll stop row into view in the list
     const row = document.querySelector(`.yuu-stop-item[data-stop-id="${CSS.escape(stop.stop_id)}"]`);
     if (row) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
   // ---------------------------------------------------------------- ETA poll
+
+  function initRefreshButton() {
+    $("yuu-eta-refresh").addEventListener("click", () => {
+      bumpActivity();
+      if (!state.selectedStop) return;
+      const btn = $("yuu-eta-refresh");
+      btn.classList.add("spinning");
+      pollEta().finally(() => {
+        setTimeout(() => btn.classList.remove("spinning"), 400);
+      });
+    });
+  }
 
   function startEtaPolling() {
     stopEtaPolling();
@@ -473,24 +628,18 @@
     if (company === "GMB") {
       const data = raw.data;
       if (!data) return [];
-      const enabled = data.enabled !== false;
-      if (!enabled) return [];
+      if (data.enabled === false) return [];
       return (data.eta || []).map((e) => ({
         eta: e.timestamp,
         dir: null,
         dest: "",
         remark: e.remarks_en || e.remarks_tc || "",
-        // GMB marks each entry explicitly; fall back to remark heuristic.
-        scheduled: e.diff_in_seconds == null && e.scheduled === true
-          ? true
-          : isScheduledEntry(e.remarks_en, e.remarks_tc),
+        scheduled: isScheduledEntry(e.remarks_en, e.remarks_tc),
       }));
     }
     return [];
   }
 
-  // KMB marks schedule-based entries with rmk_en: "Scheduled Bus"
-  // (rmk_tc: "原定班次"). CTB is typically empty on real-time entries.
   function isScheduledEntry(rmkEn, rmkTc) {
     const en = (rmkEn || "").toLowerCase();
     const tc = rmkTc || "";
@@ -522,7 +671,7 @@
       .filter((e) => e.eta)
       .sort((a, b) => new Date(a.eta) - new Date(b.eta));
     if (valid.length === 0) {
-      list.innerHTML = '<li class="yuu-eta-empty">No upcoming buses in the schedule</li>';
+      list.innerHTML = '<li class="yuu-eta-empty">No upcoming buses</li>';
       return;
     }
     list.innerHTML = valid.slice(0, 5).map((e) => {
@@ -530,8 +679,9 @@
       const arriving = mins !== null && mins <= 0;
       const cls = arriving ? "yuu-arriving" : (e.scheduled ? "yuu-scheduled" : "yuu-live");
       const badge = e.scheduled ? "⏱" : "⚡";
+      const kind = e.scheduled ? "Scheduled" : "Live";
       return `<li class="yuu-eta-item">
-        <span class="yuu-eta-time ${cls}">${badge} ${escapeHtml(etaText(e.eta))}</span>
+        <span class="yuu-eta-time ${cls}" title="${kind}">${badge} ${escapeHtml(etaText(e.eta))}</span>
         <span class="yuu-eta-dest">${escapeHtml(e.dest || "")}</span>
       </li>`;
     }).join("");

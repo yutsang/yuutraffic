@@ -96,6 +96,28 @@ def _export_stops(conn: sqlite3.Connection) -> dict[str, dict]:
     }
 
 
+def _export_stop_routes(conn: sqlite3.Connection) -> dict[str, list[str]]:
+    """For each stop_id, the list of route_keys serving it.
+
+    Used by the browser's 'Near me' flow to discover which routes run at
+    the stops nearest the user without having to download every per-route
+    geometry file.
+    """
+    rows = conn.execute(
+        """
+        SELECT DISTINCT stop_id, route_key
+        FROM route_stops
+        WHERE stop_id IS NOT NULL AND route_key IS NOT NULL
+        """
+    ).fetchall()
+    out: dict[str, list[str]] = {}
+    for r in rows:
+        out.setdefault(r["stop_id"], []).append(r["route_key"])
+    for v in out.values():
+        v.sort()
+    return out
+
+
 def _write_json(path: Path, data) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -136,9 +158,11 @@ def main() -> int:
         conn.row_factory = sqlite3.Row
         routes = _export_routes(conn)
         stops = _export_stops(conn)
+        stop_routes = _export_stop_routes(conn)
 
     _write_json(OUT / "routes.json", routes)
     _write_json(OUT / "stops.json", stops)
+    _write_json(OUT / "stop_routes.json", stop_routes)
 
     copied = 0
     if GEO_SRC.exists():
@@ -156,7 +180,12 @@ def main() -> int:
         {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "schema_version": SCHEMA_VERSION,
-            "counts": {"routes": len(routes), "stops": len(stops), "geometry": copied},
+            "counts": {
+                "routes": len(routes),
+                "stops": len(stops),
+                "stop_routes": len(stop_routes),
+                "geometry": copied,
+            },
         },
     )
     print(
