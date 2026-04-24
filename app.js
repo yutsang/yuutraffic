@@ -517,38 +517,39 @@
       : escapeHtml(en);
   }
 
-  async function backfillMissingHeadStops(geo, route, direction) {
+  // For KMB routes, the precomputed geometry uses whichever service_type was
+  // stored last in SQLite — which is wrong when the user picked a different
+  // variant (e.g., 219X/st=1 Laguna City vs 219X/st=4 Ko Ling Road) and also
+  // drops seq=1 on circular routes. Fetch the authoritative stop list from
+  // the live KMB API for the selected variant, and replace geo.stops.
+  async function replaceStopsFromLiveKmb(geo, route, direction) {
     const bound = direction === 1 ? "outbound" : "inbound";
     const st = route.st || 1;
     try {
-      const upstream = await fetchJson(
+      const resp = await fetchJson(
         `https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${encodeURIComponent(route.id)}/${bound}/${st}`
       );
-      const headSeq = geo.stops[0].sequence;
-      const missing = (upstream.data || [])
-        .filter((e) => Number(e.seq) < headSeq)
-        .sort((a, b) => Number(a.seq) - Number(b.seq));
-      if (missing.length === 0) return;
+      const upstream = (resp.data || []).slice().sort(
+        (a, b) => Number(a.seq) - Number(b.seq)
+      );
+      if (upstream.length === 0) return;
+
       const stops = await ensureStopsLoaded();
-      const prepend = [];
-      for (const m of missing) {
-        const info = stops[m.stop];
-        if (!info) continue;
-        prepend.push({
-          stop_id: m.stop,
+      const rebuilt = upstream.map((e) => {
+        const info = stops[e.stop] || {};
+        return {
+          stop_id: e.stop,
           stop_name: info.ne || "",
           stop_name_tc: info.nt || "",
-          sequence: Number(m.seq),
+          sequence: Number(e.seq),
           company: "KMB",
           lat: info.la,
           lng: info.lg,
-        });
-      }
-      if (prepend.length > 0) {
-        geo.stops = prepend.concat(geo.stops);
-      }
+        };
+      });
+      geo.stops = rebuilt;
     } catch (err) {
-      console.warn("Could not backfill missing head stops", err);
+      console.warn("Could not fetch live KMB stops; falling back to bundled geometry", err);
     }
   }
 
@@ -560,12 +561,10 @@
 
     try {
       const geo = await fetchJson(url);
-      // Some circular KMB routes have their geometry precompute drop the
-      // head stops (first stop comes back with seq=2+). Backfill from the
-      // live KMB route-stop API + stops.json so the list starts at 1.
-      if (Array.isArray(geo.stops) && geo.stops.length > 0 &&
-          geo.stops[0].sequence > 1 && r.co === "KMB") {
-        await backfillMissingHeadStops(geo, r, d);
+      // KMB: fetch the live per-variant stop list (fixes circular seq=1
+      // gap AND service_type variants that share a geometry file).
+      if (r.co === "KMB") {
+        await replaceStopsFromLiveKmb(geo, r, d);
       }
       if (Array.isArray(geo.stops)) {
         geo.stops.forEach((s, i) => { s.sequence = i + 1; });
