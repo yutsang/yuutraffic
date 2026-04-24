@@ -186,6 +186,7 @@
     initActivityTracking();
     initVisibility();
     initRefreshButton();
+    initViewportResize();
     $("yuu-meta").textContent = "Loading routes…";
 
     try {
@@ -720,6 +721,16 @@
         color: "#ffffff", weight: 4, fillOpacity: 1,
       }).addTo(state.map);
       state.map.setView([stop.lat, stop.lng], 16, { animate: true });
+      // On mobile, the ETA sheet docks from the bottom and can cover the
+      // stop marker. Nudge the map so the marker sits in the upper portion
+      // of the visible area above the sheet.
+      if (window.matchMedia("(max-width: 768px)").matches) {
+        const nudge = () => {
+          const sheetH = ($("yuu-eta")?.offsetHeight) || 0;
+          if (sheetH > 0) state.map.panBy([0, sheetH * 0.45], { animate: true });
+        };
+        setTimeout(nudge, 260);
+      }
     }
 
     startEtaPolling();
@@ -902,6 +913,20 @@
         pollEta();
       }
     });
+  }
+
+  // Re-tile the map on orientation change / URL-bar show-hide so the tile
+  // grid covers the new viewport without a manual pan.
+  function initViewportResize() {
+    const resync = () => {
+      if (state.map) state.map.invalidateSize();
+    };
+    window.addEventListener("resize", resync);
+    window.addEventListener("orientationchange", () => setTimeout(resync, 120));
+    // iOS Safari fires visualViewport.resize when the URL bar shows/hides.
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", resync);
+    }
   }
 
   // ------------------------------------------------------------------- boot
