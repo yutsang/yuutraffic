@@ -70,38 +70,6 @@
     "HKCEC", "IFC", "YMCA", "HSBC", "ICBC", "UK", "US",
   ]);
 
-  // If the pipeline already merged joint routes (has `partners`), leave as-is.
-  // Otherwise group routes sharing the same route_id across multiple operators.
-  function mergeJointRoutesClient(routes) {
-    const byId = new Map();
-    for (const r of routes) {
-      if (!byId.has(r.id)) byId.set(r.id, []);
-      byId.get(r.id).push(r);
-    }
-    const out = [];
-    for (const group of byId.values()) {
-      const hasExistingPartners = group.some((r) => r.partners && r.partners.length > 1);
-      const companies = new Set(group.map((r) => r.co));
-      if (hasExistingPartners || companies.size === 1) {
-        out.push(...group);
-        continue;
-      }
-      const primaryCo = companies.has("KMB")
-        ? "KMB"
-        : [...companies].sort()[0];
-      const primary = { ...group.find((r) => r.co === primaryCo) };
-      primary.partners = group
-        .map((r) => ({ co: r.co, rk: r.rk, id: r.id, pid: r.pid, st: r.st }))
-        .sort((a, b) =>
-          (a.co !== primaryCo) - (b.co !== primaryCo) || a.co.localeCompare(b.co)
-        );
-      out.push(primary);
-    }
-    return out.sort((a, b) =>
-      a.co.localeCompare(b.co) || compareRouteIds(a.id, b.id)
-    );
-  }
-
   function displayEn(s) {
     if (!s) return s;
     // If already mixed case, leave as-is
@@ -176,9 +144,11 @@
         fetchJson(`${DATA_BASE}/routes.json`),
         fetchJson(`${DATA_BASE}/meta.json`),
       ]);
-      // Client-side fallback: merge multi-operator routes for backward
-      // compat with bundles that pre-date the pipeline's joint-merge step.
-      state.routes = mergeJointRoutesClient(routes);
+      // Whether routes are joint (e.g. KMB + Citybus 101) is determined
+      // by the pipeline using stop-set overlap — too data-heavy to replicate
+      // client-side. If the bundle already has `partners` fields, they're
+      // respected; otherwise every route stays solo.
+      state.routes = routes;
       state.meta = meta;
       renderMeta();
     } catch (err) {
@@ -403,7 +373,20 @@
     state.selectedDirection = (route.dirs && route.dirs[0]) || 1;
 
     // Theme the widget by company (colours polyline, stop-seq badges, etc.)
-    $("yuu").dataset.company = route.co || "";
+    const yuu = $("yuu");
+    yuu.dataset.company = route.co || "";
+    // Joint routes: expose partner colours as inline CSS vars so gradient
+    // stop-seq badges and bi-coloured polylines can adopt both operators.
+    if (route.partners && route.partners.length > 1) {
+      const colors = route.partners.map((p) => companyColor(p.co));
+      yuu.dataset.joint = "true";
+      yuu.style.setProperty("--yuu-partner-1", colors[0]);
+      yuu.style.setProperty("--yuu-partner-2", colors[1] || colors[0]);
+    } else {
+      yuu.dataset.joint = "false";
+      yuu.style.removeProperty("--yuu-partner-1");
+      yuu.style.removeProperty("--yuu-partner-2");
+    }
 
     $("yuu-search-input").value = route.id;
     $("yuu-search-results").hidden = true;
@@ -569,6 +552,10 @@
       state.map.removeLayer(state.routeLayer);
       state.routeLayer = null;
     }
+    if (state.partnerLayer) {
+      state.map.removeLayer(state.partnerLayer);
+      state.partnerLayer = null;
+    }
     state.stopLayers.forEach((l) => state.map.removeLayer(l));
     state.stopLayers = [];
     if (state.selectedStopLayer) {
@@ -576,13 +563,26 @@
       state.selectedStopLayer = null;
     }
 
-    const color = companyColor(state.selectedRoute?.co);
+    const route = state.selectedRoute;
+    const partners = route?.partners || [];
+    const isJoint = partners.length > 1;
+    const primaryColor = companyColor(route?.co);
+    const secondaryColor = isJoint ? companyColor(partners[1].co) : null;
 
     const coords = Array.isArray(geo.coords) ? geo.coords : [];
     if (coords.length > 1) {
+      // Primary solid line in operator colour.
       state.routeLayer = L.polyline(coords, {
-        color, weight: 5, opacity: 0.85,
+        color: primaryColor, weight: 5, opacity: 0.85,
       }).addTo(state.map);
+      // Joint routes: overlay a dashed line in the second operator colour
+      // so the line visibly carries both brands.
+      if (isJoint && secondaryColor) {
+        state.partnerLayer = L.polyline(coords, {
+          color: secondaryColor, weight: 3, opacity: 0.95,
+          dashArray: "10, 14",
+        }).addTo(state.map);
+      }
     } else if (geo.stops && geo.stops.length > 1) {
       const fallback = geo.stops
         .map((s) => [s.lat, s.lng])
@@ -595,7 +595,7 @@
     (geo.stops || []).forEach((s) => {
       if (typeof s.lat !== "number" || typeof s.lng !== "number") return;
       const marker = L.circleMarker([s.lat, s.lng], {
-        radius: 5, fillColor: color,
+        radius: 5, fillColor: primaryColor,
         color: "#ffffff", weight: 2, fillOpacity: 1,
       }).addTo(state.map);
       const tc = s.stop_name_tc ? ` · ${s.stop_name_tc}` : "";

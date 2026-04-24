@@ -354,6 +354,25 @@
   font-size: 0.85rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+/* Joint routes: split the stop badge diagonally into each operator's colour
+   so users can see at a glance that more than one company runs the route. */
+#yuu[data-joint="true"] .yuu-stop-seq {
+  background: linear-gradient(135deg,
+      var(--yuu-partner-1, var(--yuu-route-color)) 49%,
+      var(--yuu-partner-2, var(--yuu-route-color)) 51%);
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+#yuu[data-joint="true"] .yuu-badge {
+  background: linear-gradient(135deg,
+      var(--yuu-partner-1, var(--yuu-route-color)) 49%,
+      var(--yuu-partner-2, var(--yuu-route-color)) 51%);
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 .yuu-stop-labels {

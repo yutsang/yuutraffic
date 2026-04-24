@@ -116,17 +116,30 @@ def _export_routes(conn: sqlite3.Connection) -> list[dict]:
     return routes
 
 
-def _merge_joint_routes(routes: list[dict]) -> list[dict]:
-    """Collapse KMB+CTB (or other cross-operator) joint services into a single
-    entry. In HK the Transport Department assigns route numbers uniquely, so
-    if the same route_id appears across multiple operators it is by definition
-    a joint service (101, 102, 112, 182, 373, etc.). Origins/destinations can
-    differ slightly — KMB and Citybus sometimes use different depot names for
-    the same physical terminus — so route_id alone is the reliable key.
+def _route_stop_sets(conn: sqlite3.Connection) -> dict[str, set[str]]:
+    """Map each route_key to the set of stop_ids it serves."""
+    rows = conn.execute(
+        "SELECT route_key, stop_id FROM route_stops "
+        "WHERE route_key IS NOT NULL AND stop_id IS NOT NULL"
+    ).fetchall()
+    out: dict[str, set[str]] = defaultdict(set)
+    for r in rows:
+        out[r["route_key"]].add(r["stop_id"])
+    return dict(out)
 
-    Within one operator, multiple service_types for the same route_id stay
-    separate so users can pick a specific variant.
+
+def _merge_joint_routes(
+    routes: list[dict], stop_sets: dict[str, set[str]]
+) -> list[dict]:
+    """Collapse jointly-operated routes (e.g. KMB+CTB 101) into a single entry.
+
+    Same route_id isn't enough — KMB 1 (Kowloon) and Citybus 1 (HK Island) are
+    completely different routes that happen to share a number. Detect true
+    joints by stop-set overlap: if multi-operator routes with the same number
+    share ≥50% of their stops, treat as joint.
     """
+    JACCARD_THRESHOLD = 0.5
+
     by_id: dict[str, list[dict]] = defaultdict(list)
     for r in routes:
         by_id[r["id"]].append(r)
@@ -137,7 +150,23 @@ def _merge_joint_routes(routes: list[dict]) -> list[dict]:
         if len(companies) == 1:
             merged.extend(group)
             continue
-        # Multi-operator: one merged entry per route_id.
+
+        # Compute stop-set overlap across the full group. Joint services have
+        # near-identical stop lists; unrelated same-number routes have almost
+        # no overlap.
+        all_stops: set[str] = set()
+        shared: set[str] | None = None
+        for r in group:
+            s = stop_sets.get(r["rk"], set())
+            all_stops |= s
+            shared = s if shared is None else (shared & s)
+        jaccard = (len(shared or set()) / len(all_stops)) if all_stops else 0.0
+
+        if jaccard < JACCARD_THRESHOLD:
+            # Not a real joint service — just a coincidentally-shared number.
+            merged.extend(group)
+            continue
+
         primary_co = "KMB" if "KMB" in companies else sorted(companies)[0]
         primary = dict(next(r for r in group if r["co"] == primary_co))
         partners = [
@@ -148,6 +177,7 @@ def _merge_joint_routes(routes: list[dict]) -> list[dict]:
         partners.sort(key=lambda p: (p["co"] != primary_co, p["co"]))
         primary["partners"] = partners
         merged.append(primary)
+
     merged.sort(key=lambda r: (r["co"], r["id"]))
     return merged
 
@@ -233,7 +263,8 @@ def main() -> int:
     with sqlite3.connect(DB) as conn:
         conn.row_factory = sqlite3.Row
         routes = _export_routes(conn)
-        routes = _merge_joint_routes(routes)
+        stop_sets = _route_stop_sets(conn)
+        routes = _merge_joint_routes(routes, stop_sets)
         stops = _export_stops(conn)
         stop_routes = _export_stop_routes(conn)
 
