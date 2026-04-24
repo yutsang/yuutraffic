@@ -8,7 +8,7 @@
   const POLL_MS = 20_000;
   const MAX_BACKOFF_MS = 120_000;
   const IDLE_STOP_MS = 10 * 60_000;
-  const NEAR_ME_RADIUS_M = 250;
+  const NEAR_ME_RADIUS_M = 300;
   const NEAR_ME_MAX_STOPS = 20;
 
   const ETA_PROVIDERS = {
@@ -405,6 +405,41 @@
       : escapeHtml(en);
   }
 
+  async function backfillMissingHeadStops(geo, route, direction) {
+    const bound = direction === 1 ? "outbound" : "inbound";
+    const st = route.st || 1;
+    try {
+      const upstream = await fetchJson(
+        `https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${encodeURIComponent(route.id)}/${bound}/${st}`
+      );
+      const headSeq = geo.stops[0].sequence;
+      const missing = (upstream.data || [])
+        .filter((e) => Number(e.seq) < headSeq)
+        .sort((a, b) => Number(a.seq) - Number(b.seq));
+      if (missing.length === 0) return;
+      const stops = await ensureStopsLoaded();
+      const prepend = [];
+      for (const m of missing) {
+        const info = stops[m.stop];
+        if (!info) continue;
+        prepend.push({
+          stop_id: m.stop,
+          stop_name: info.ne || "",
+          stop_name_tc: info.nt || "",
+          sequence: Number(m.seq),
+          company: "KMB",
+          lat: info.la,
+          lng: info.lg,
+        });
+      }
+      if (prepend.length > 0) {
+        geo.stops = prepend.concat(geo.stops);
+      }
+    } catch (err) {
+      console.warn("Could not backfill missing head stops", err);
+    }
+  }
+
   async function loadDirection() {
     const r = state.selectedRoute;
     const d = state.selectedDirection;
@@ -413,10 +448,13 @@
 
     try {
       const geo = await fetchJson(url);
-      // KMB's API omits seq=1 for some circular routes (the duplicated
-      // start-end stop), so the first stop comes in as sequence=2. Always
-      // renumber 1-based for display. stop_id is unchanged, so ETA still
-      // works for every entry.
+      // Some circular KMB routes have their geometry precompute drop the
+      // head stops (first stop comes back with seq=2+). Backfill from the
+      // live KMB route-stop API + stops.json so the list starts at 1.
+      if (Array.isArray(geo.stops) && geo.stops.length > 0 &&
+          geo.stops[0].sequence > 1 && r.co === "KMB") {
+        await backfillMissingHeadStops(geo, r, d);
+      }
       if (Array.isArray(geo.stops)) {
         geo.stops.forEach((s, i) => { s.sequence = i + 1; });
       }
