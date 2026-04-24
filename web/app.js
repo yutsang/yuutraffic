@@ -75,28 +75,44 @@
   // -------------------------------------------------------------------- init
 
   async function init() {
-    try {
-      const [routes, stops, meta] = await Promise.all([
-        fetchJson(`${DATA_BASE}/routes.json`),
-        fetchJson(`${DATA_BASE}/stops.json`),
-        fetchJson(`${DATA_BASE}/meta.json`),
-      ]);
-      state.routes = routes;
-      state.stops = stops;
-      state.meta = meta;
-      renderMeta();
-    } catch (err) {
-      console.error("Failed to load bundles", err);
-      $("yuu-meta").textContent =
-        "Failed to load transport data. The nightly build may not have run yet.";
-      return;
-    }
-
+    applyEmbedMode();
+    // Map can render before any data arrives — blank base layer shows instantly.
     initMap();
     initSearch();
     initDirectionToggle();
     initActivityTracking();
     initVisibility();
+    $("yuu-meta").textContent = "Loading routes…";
+
+    // Only routes.json + meta.json are needed for search / welcome.
+    // stops.json is deferred — Phase 1 doesn't use it (geometry files carry
+    // per-route stop coords). Trip Planner / MTR routing will load it lazily.
+    try {
+      const [routes, meta] = await Promise.all([
+        fetchJson(`${DATA_BASE}/routes.json`),
+        fetchJson(`${DATA_BASE}/meta.json`),
+      ]);
+      state.routes = routes;
+      state.meta = meta;
+      renderMeta();
+    } catch (err) {
+      console.error("Failed to load bundles", err);
+      $("yuu-meta").textContent =
+        "Failed to load transport data. The build may not have run yet.";
+    }
+  }
+
+  function applyEmbedMode() {
+    const params = new URLSearchParams(location.search);
+    if (params.get("embed") === "1" || params.has("embed")) {
+      document.documentElement.classList.add("yuu-embedded");
+    }
+  }
+
+  async function ensureStopsLoaded() {
+    if (state.stops && Object.keys(state.stops).length > 0) return state.stops;
+    state.stops = await fetchJson(`${DATA_BASE}/stops.json`);
+    return state.stops;
   }
 
   function renderMeta() {
