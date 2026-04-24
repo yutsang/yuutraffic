@@ -118,39 +118,32 @@ def _export_routes(conn: sqlite3.Connection) -> list[dict]:
 
 def _merge_joint_routes(routes: list[dict]) -> list[dict]:
     """Collapse KMB+CTB (or other cross-operator) joint services into a single
-    entry. Hong Kong has many cooperated routes (e.g. 101, 102, 112) where both
-    operators run the same route number between the same termini.
+    entry. In HK the Transport Department assigns route numbers uniquely, so
+    if the same route_id appears across multiple operators it is by definition
+    a joint service (101, 102, 112, 182, 373, etc.). Origins/destinations can
+    differ slightly — KMB and Citybus sometimes use different depot names for
+    the same physical terminus — so route_id alone is the reliable key.
 
-    Policy: group by (route_id, normalized origin, normalized destination).
-    If a group has multiple operators, keep the KMB entry as primary (or the
-    alphabetically-first operator if no KMB) and attach the others as
-    `partners`. The client fetches ETA from every partner and merges.
+    Within one operator, multiple service_types for the same route_id stay
+    separate so users can pick a specific variant.
     """
-    def norm(s: str) -> str:
-        return re.sub(r"\W+", " ", (s or "").upper()).strip()
-
-    groups: dict[tuple, list[dict]] = defaultdict(list)
+    by_id: dict[str, list[dict]] = defaultdict(list)
     for r in routes:
-        groups[(r["id"], norm(r["oe"]), norm(r["de"]))].append(r)
+        by_id[r["id"]].append(r)
 
     merged: list[dict] = []
-    for group in groups.values():
-        if len(group) == 1:
-            merged.append(group[0])
-            continue
-        by_co: dict[str, list[dict]] = defaultdict(list)
-        for r in group:
-            by_co[r["co"]].append(r)
-        if len(by_co) == 1:
+    for group in by_id.values():
+        companies = {r["co"] for r in group}
+        if len(companies) == 1:
             merged.extend(group)
             continue
-        primary_co = "KMB" if "KMB" in by_co else sorted(by_co)[0]
-        primary = dict(by_co[primary_co][0])
+        # Multi-operator: one merged entry per route_id.
+        primary_co = "KMB" if "KMB" in companies else sorted(companies)[0]
+        primary = dict(next(r for r in group if r["co"] == primary_co))
         partners = [
-            {"co": e["co"], "rk": e["rk"], "id": e["id"],
-             "pid": e["pid"], "st": e["st"]}
-            for entries in by_co.values()
-            for e in entries
+            {"co": r["co"], "rk": r["rk"], "id": r["id"],
+             "pid": r["pid"], "st": r["st"]}
+            for r in group
         ]
         partners.sort(key=lambda p: (p["co"] != primary_co, p["co"]))
         primary["partners"] = partners

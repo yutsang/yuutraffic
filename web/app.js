@@ -70,6 +70,38 @@
     "HKCEC", "IFC", "YMCA", "HSBC", "ICBC", "UK", "US",
   ]);
 
+  // If the pipeline already merged joint routes (has `partners`), leave as-is.
+  // Otherwise group routes sharing the same route_id across multiple operators.
+  function mergeJointRoutesClient(routes) {
+    const byId = new Map();
+    for (const r of routes) {
+      if (!byId.has(r.id)) byId.set(r.id, []);
+      byId.get(r.id).push(r);
+    }
+    const out = [];
+    for (const group of byId.values()) {
+      const hasExistingPartners = group.some((r) => r.partners && r.partners.length > 1);
+      const companies = new Set(group.map((r) => r.co));
+      if (hasExistingPartners || companies.size === 1) {
+        out.push(...group);
+        continue;
+      }
+      const primaryCo = companies.has("KMB")
+        ? "KMB"
+        : [...companies].sort()[0];
+      const primary = { ...group.find((r) => r.co === primaryCo) };
+      primary.partners = group
+        .map((r) => ({ co: r.co, rk: r.rk, id: r.id, pid: r.pid, st: r.st }))
+        .sort((a, b) =>
+          (a.co !== primaryCo) - (b.co !== primaryCo) || a.co.localeCompare(b.co)
+        );
+      out.push(primary);
+    }
+    return out.sort((a, b) =>
+      a.co.localeCompare(b.co) || compareRouteIds(a.id, b.id)
+    );
+  }
+
   function displayEn(s) {
     if (!s) return s;
     // If already mixed case, leave as-is
@@ -144,7 +176,9 @@
         fetchJson(`${DATA_BASE}/routes.json`),
         fetchJson(`${DATA_BASE}/meta.json`),
       ]);
-      state.routes = routes;
+      // Client-side fallback: merge multi-operator routes for backward
+      // compat with bundles that pre-date the pipeline's joint-merge step.
+      state.routes = mergeJointRoutesClient(routes);
       state.meta = meta;
       renderMeta();
     } catch (err) {
