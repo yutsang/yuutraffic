@@ -209,6 +209,10 @@
     $("yuu-eta").hidden = true;
     stopEtaPolling();
 
+    // Section visibility may change available map width on mobile; poke
+    // Leaflet so it recomputes tile grid.
+    if (state.map) setTimeout(() => state.map.invalidateSize(), 0);
+
     const badge = $("yuu-route-badge");
     badge.textContent = route.id;
     badge.className = `yuu-badge ${route.co}`;
@@ -463,6 +467,7 @@
         route: e.route,
         dest: e.dest_en || e.dest_tc || "",
         remark: e.rmk_en || e.rmk_tc || "",
+        scheduled: isScheduledEntry(e.rmk_en, e.rmk_tc),
       }));
     }
     if (company === "GMB") {
@@ -475,9 +480,21 @@
         dir: null,
         dest: "",
         remark: e.remarks_en || e.remarks_tc || "",
+        // GMB marks each entry explicitly; fall back to remark heuristic.
+        scheduled: e.diff_in_seconds == null && e.scheduled === true
+          ? true
+          : isScheduledEntry(e.remarks_en, e.remarks_tc),
       }));
     }
     return [];
+  }
+
+  // KMB marks schedule-based entries with rmk_en: "Scheduled Bus"
+  // (rmk_tc: "原定班次"). CTB is typically empty on real-time entries.
+  function isScheduledEntry(rmkEn, rmkTc) {
+    const en = (rmkEn || "").toLowerCase();
+    const tc = rmkTc || "";
+    return en.includes("scheduled") || tc.includes("原定") || tc.includes("時間表");
   }
 
   function filterEta(route, direction, etas) {
@@ -508,11 +525,16 @@
       list.innerHTML = '<li class="yuu-eta-empty">No upcoming buses in the schedule</li>';
       return;
     }
-    list.innerHTML = valid.slice(0, 5).map((e) => `
-      <li class="yuu-eta-item">
-        <span class="yuu-eta-time">${escapeHtml(etaText(e.eta))}</span>
-        <span class="yuu-eta-dest">${escapeHtml(e.remark || e.dest || "")}</span>
-      </li>`).join("");
+    list.innerHTML = valid.slice(0, 5).map((e) => {
+      const mins = etaMinutes(e.eta);
+      const arriving = mins !== null && mins <= 0;
+      const cls = arriving ? "yuu-arriving" : (e.scheduled ? "yuu-scheduled" : "yuu-live");
+      const badge = e.scheduled ? "⏱" : "⚡";
+      return `<li class="yuu-eta-item">
+        <span class="yuu-eta-time ${cls}">${badge} ${escapeHtml(etaText(e.eta))}</span>
+        <span class="yuu-eta-dest">${escapeHtml(e.dest || "")}</span>
+      </li>`;
+    }).join("");
   }
 
   // --------------------------------------------------------- misc listeners
