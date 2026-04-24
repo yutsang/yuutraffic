@@ -826,7 +826,7 @@
     }
 
     const merged = successes.flatMap((r2) => r2.value);
-    const filtered = filterEta(r, state.selectedDirection, merged);
+    const filtered = filterEta(r, state.selectedDirection, s, merged);
     renderEta(filtered, null);
     if (state.etaErrorCount > 0) {
       state.etaErrorCount = 0;
@@ -841,6 +841,8 @@
         eta: e.eta,
         dir: e.dir,
         route: e.route,
+        seq: e.seq != null ? Number(e.seq) : null,
+        st:  e.service_type != null ? Number(e.service_type) : null,
         dest: e.dest_en || e.dest_tc || "",
         remark: e.rmk_en || e.rmk_tc || "",
         scheduled: isScheduledEntry(e.rmk_en, e.rmk_tc),
@@ -853,6 +855,7 @@
       return (data.eta || []).map((e) => ({
         eta: e.timestamp,
         dir: null,
+        seq: null,
         dest: "",
         remark: e.remarks_en || e.remarks_tc || "",
         scheduled: isScheduledEntry(e.remarks_en, e.remarks_tc),
@@ -867,13 +870,23 @@
     return en.includes("scheduled") || tc.includes("原定") || tc.includes("時間表");
   }
 
-  function filterEta(route, direction, etas) {
+  function filterEta(route, direction, stop, etas) {
     if (route.co === "KMB" || route.co === "CTB") {
-      const wanted = direction === 1 ? "O" : "I";
-      return etas.filter((e) =>
-        (!e.dir || e.dir === wanted) &&
-        (!e.route || e.route === route.id)
-      );
+      const wantedDir = direction === 1 ? "O" : "I";
+      const wantedSeq = stop?.sequence ?? null;
+      const wantedSt = route.st ?? null;
+      return etas.filter((e) => {
+        if (e.dir && e.dir !== wantedDir) return false;
+        if (e.route && e.route !== route.id) return false;
+        // Service-type filter: when an entry carries service_type, only keep
+        // the one matching the variant the user picked.
+        if (wantedSt != null && e.st != null && e.st !== wantedSt) return false;
+        // Seq filter: disambiguates circular-route terminus where the same
+        // stop_id serves seq=1 (departing) AND seq=N (arriving). Without this
+        // the ETA list mixes both semantics.
+        if (wantedSeq != null && e.seq != null && e.seq !== wantedSeq) return false;
+        return true;
+      });
     }
     return etas;
   }
