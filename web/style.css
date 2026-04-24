@@ -122,29 +122,6 @@
   box-shadow: 0 0 0 3px rgba(0, 145, 218, 0.18);
 }
 
-.yuu-near-me {
-  flex-shrink: 0;
-  padding: 8px 12px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--yuu-accent);
-  color: #ffffff;
-  border: 1px solid var(--yuu-accent);
-  border-radius: var(--yuu-radius);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.yuu-near-me:hover:not(:disabled) {
-  background: var(--yuu-accent-bright);
-  border-color: var(--yuu-accent-bright);
-}
-
-.yuu-near-me:disabled {
-  opacity: 0.7;
-  cursor: default;
-}
-
 .yuu-search-results {
   position: absolute;
   top: calc(100% + 4px);
@@ -201,10 +178,21 @@
   white-space: nowrap;
 }
 
+.yuu-search-result-tc {
+  font-size: 0.82rem;
+  color: var(--yuu-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+
 .yuu-search-result-co {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--yuu-muted);
   margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .yuu-search-empty {
