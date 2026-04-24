@@ -13,6 +13,8 @@ import json
 import re
 import sqlite3
 import sys
+import urllib.error
+import urllib.request
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,90 +82,165 @@ def _company_short(company: str | None) -> str:
     return "KMB"
 
 
+def _fetch_kmb_route_variants() -> dict[tuple[str, int, int], dict]:
+    """Fetch KMB's full route catalogue so we know origin/destination per
+    service_type variant — the DB's `routes` table stores only one row per
+    route_key so variant info was being lost (e.g., 219X service_type 1 has
+    origin "Laguna City" while service_type 4 has origin "Ko Ling Road").
+
+    Returns: {(route_id, service_type, direction): {oe, de, ot, dt}}
+    """
+    url = "https://data.etabus.gov.hk/v1/transport/kmb/route/"
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            data = json.load(resp)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+        print(f"WARN: KMB /route/ fetch failed ({e}); variant names may be incorrect.",
+              file=sys.stderr)
+        return {}
+    out: dict[tuple[str, int, int], dict] = {}
+    for entry in data.get("data", []):
+        rid = entry.get("route")
+        bound = entry.get("bound")
+        try:
+            st = int(entry.get("service_type") or 1)
+        except (TypeError, ValueError):
+            st = 1
+        direction = 1 if bound == "O" else 2
+        out[(rid, st, direction)] = {
+            "oe": entry.get("orig_en", ""),
+            "de": entry.get("dest_en", ""),
+            "ot": entry.get("orig_tc", ""),
+            "dt": entry.get("dest_tc", ""),
+        }
+    return out
+
+
 def _export_routes(conn: sqlite3.Connection) -> list[dict]:
-    rows = conn.execute(
+    """Emit one route entry per distinct (route_key, service_type) variant.
+
+    KMB routes commonly have several service_types with different origins
+    (e.g., peak-hour extras from a different depot). Previously the exporter
+    used only the `routes` table — which stores one row per route_key — and
+    therefore collapsed all variants to whatever service_type was inserted
+    last. We now query `route_stops` (which DOES distinguish service_type)
+    and overlay variant-specific origin/destination names from the live KMB
+    catalogue.
+    """
+    base_rows = conn.execute(
         """
         SELECT route_key, route_id, origin_en, destination_en,
                origin_tc, destination_tc, service_type, company,
                provider_route_id
         FROM routes
-        ORDER BY company, route_id
         """
     ).fetchall()
-    dir_rows = conn.execute(
-        "SELECT route_key, direction FROM route_stops GROUP BY route_key, direction"
+    base_by_key = {r["route_key"]: dict(r) for r in base_rows}
+
+    # (route_key, service_type, direction) distinct combinations
+    variant_rows = conn.execute(
+        """
+        SELECT route_key, COALESCE(service_type, 1) AS st, direction
+        FROM route_stops
+        WHERE route_key IS NOT NULL
+        GROUP BY route_key, st, direction
+        """
     ).fetchall()
-    dirs_by_key: dict[str, list[int]] = {}
-    for row in dir_rows:
-        dirs_by_key.setdefault(row["route_key"], []).append(int(row["direction"]))
+
+    # For each (route_key, service_type), collect directions
+    variants_dirs: dict[tuple[str, int], list[int]] = defaultdict(list)
+    for v in variant_rows:
+        variants_dirs[(v["route_key"], int(v["st"]))].append(int(v["direction"]))
+
+    kmb_variants = _fetch_kmb_route_variants()
 
     routes: list[dict] = []
-    for r in rows:
-        routes.append(
-            {
-                "rk": r["route_key"],
-                "id": r["route_id"],
-                "co": _company_short(r["company"]),
-                "st": r["service_type"] or 1,
-                "pid": r["provider_route_id"] or "",
-                "oe": _title_case_en(r["origin_en"] or ""),
-                "de": _title_case_en(r["destination_en"] or ""),
-                "ot": r["origin_tc"] or "",
-                "dt": r["destination_tc"] or "",
-                "dirs": sorted(dirs_by_key.get(r["route_key"], [1])),
-            }
-        )
+    for (rk, st), dirs in variants_dirs.items():
+        base = base_by_key.get(rk, {})
+        company = _company_short(base.get("company"))
+        route_id = base.get("route_id") or rk.split("_", 1)[-1]
+
+        # Variant-specific origin/destination. For KMB, pick the variant-
+        # matching row from the live catalogue; for other operators, fall
+        # back to whatever the routes table has.
+        oe = base.get("origin_en", "") or ""
+        de = base.get("destination_en", "") or ""
+        ot = base.get("origin_tc", "") or ""
+        dt = base.get("destination_tc", "") or ""
+        if company == "KMB" and kmb_variants:
+            # Try to match on the outbound direction first (more common).
+            for d in sorted(dirs):
+                meta = kmb_variants.get((route_id, st, d))
+                if meta:
+                    oe, de = meta["oe"], meta["de"]
+                    ot, dt = meta["ot"], meta["dt"]
+                    break
+
+        routes.append({
+            "rk": rk,
+            "id": route_id,
+            "co": company,
+            "st": st,
+            "pid": base.get("provider_route_id", "") or "",
+            "oe": _title_case_en(oe),
+            "de": _title_case_en(de),
+            "ot": ot,
+            "dt": dt,
+            "dirs": sorted(set(dirs)),
+        })
+    routes.sort(key=lambda r: (r["co"], r["id"], r["st"]))
     return routes
 
 
-def _route_stop_sets(conn: sqlite3.Connection) -> dict[str, set[str]]:
-    """Map each route_key to the set of stop_ids it serves."""
+def _route_stop_sets(conn: sqlite3.Connection) -> dict[tuple[str, int], set[str]]:
+    """Map each (route_key, service_type) to the set of stop_ids it serves.
+
+    Keyed by the full variant so the joint-detection Jaccard check compares
+    like with like (KMB 219X st=1 vs 219X st=4 are different routes, so they
+    shouldn't be lumped together just because they share a route_key).
+    """
     rows = conn.execute(
-        "SELECT route_key, stop_id FROM route_stops "
+        "SELECT route_key, COALESCE(service_type, 1) AS st, stop_id FROM route_stops "
         "WHERE route_key IS NOT NULL AND stop_id IS NOT NULL"
     ).fetchall()
-    out: dict[str, set[str]] = defaultdict(set)
+    out: dict[tuple[str, int], set[str]] = defaultdict(set)
     for r in rows:
-        out[r["route_key"]].add(r["stop_id"])
+        out[(r["route_key"], int(r["st"]))].add(r["stop_id"])
     return dict(out)
 
 
 def _merge_joint_routes(
-    routes: list[dict], stop_sets: dict[str, set[str]]
+    routes: list[dict], stop_sets: dict[tuple[str, int], set[str]]
 ) -> list[dict]:
     """Collapse jointly-operated routes (e.g. KMB+CTB 101) into a single entry.
 
-    Same route_id isn't enough — KMB 1 (Kowloon) and Citybus 1 (HK Island) are
-    completely different routes that happen to share a number. Detect true
-    joints by stop-set overlap: if multi-operator routes with the same number
-    share ≥50% of their stops, treat as joint.
+    Grouped by (route_id, service_type) so each variant is joined only with
+    its matching counterpart on the other operator. Jaccard overlap ≥ 0.5
+    qualifies as joint; KMB 1 (Kowloon) vs Citybus 1 (HK Island) have zero
+    overlap so stay separate.
     """
     JACCARD_THRESHOLD = 0.5
 
-    by_id: dict[str, list[dict]] = defaultdict(list)
+    by_variant: dict[tuple[str, int], list[dict]] = defaultdict(list)
     for r in routes:
-        by_id[r["id"]].append(r)
+        by_variant[(r["id"], r["st"])].append(r)
 
     merged: list[dict] = []
-    for group in by_id.values():
+    for group in by_variant.values():
         companies = {r["co"] for r in group}
         if len(companies) == 1:
             merged.extend(group)
             continue
 
-        # Compute stop-set overlap across the full group. Joint services have
-        # near-identical stop lists; unrelated same-number routes have almost
-        # no overlap.
         all_stops: set[str] = set()
         shared: set[str] | None = None
         for r in group:
-            s = stop_sets.get(r["rk"], set())
+            s = stop_sets.get((r["rk"], r["st"]), set())
             all_stops |= s
             shared = s if shared is None else (shared & s)
         jaccard = (len(shared or set()) / len(all_stops)) if all_stops else 0.0
 
         if jaccard < JACCARD_THRESHOLD:
-            # Not a real joint service — just a coincidentally-shared number.
             merged.extend(group)
             continue
 
@@ -178,7 +255,7 @@ def _merge_joint_routes(
         primary["partners"] = partners
         merged.append(primary)
 
-    merged.sort(key=lambda r: (r["co"], r["id"]))
+    merged.sort(key=lambda r: (r["co"], r["id"], r["st"]))
     return merged
 
 
