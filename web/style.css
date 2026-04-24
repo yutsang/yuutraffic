@@ -526,6 +526,20 @@
   white-space: nowrap;
 }
 
+.yuu-eta-op {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-right: 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 4px;
+  background: var(--yuu-border);
+  color: var(--yuu-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  vertical-align: 1px;
+}
+
 .yuu-eta-empty {
   color: var(--yuu-muted);
   padding: 8px 0;

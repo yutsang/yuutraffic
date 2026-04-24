@@ -10,9 +10,10 @@ Output layout under ``web/data/``:
 from __future__ import annotations
 
 import json
-import shutil
+import re
 import sqlite3
 import sys
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,7 +23,46 @@ GEO_SRC = ROOT / "data" / "02_intermediate" / "route_geometry"
 OUT = ROOT / "web" / "data"
 OUT_GEO = OUT / "geometry"
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# Tokens kept as-is during title-casing — HK-specific acronyms and station
+# line codes. Any alphanumeric token containing digits is kept as well.
+PRESERVE_TOKENS = {
+    "MTR", "LRT", "HK", "HKIA", "HKU", "HKUST", "CUHK", "UST", "POLYU",
+    "GPO", "AEL", "TCL", "TWL", "KTL", "EAL", "ISL", "SIL", "WRL", "DRL",
+    "MOL", "SEL", "TCL", "KMB", "LWB", "CTB", "NWFB", "GMB", "UK", "US",
+    "HKCEC", "HKIA", "HKIEC", "AIA", "IFC", "PCCW", "AYLC", "IP", "II",
+    "III", "IV", "VIP", "MTR", "POS", "YMCA", "YWCA", "HSBC", "ICBC",
+}
+
+
+def _title_case_en(s: str | None) -> str:
+    """Convert a HK-style stop/route name to Title Case, preserving acronyms
+    and alphanumeric codes.
+
+    Examples:
+        "ON TAI ESTATE (AN640)" → "On Tai Estate (AN640)"
+        "MTR HUNG HOM STATION"  → "MTR Hung Hom Station"
+        "Central (Macao Ferry)" → "Central (Macao Ferry)" (already ok)
+    """
+    if not s:
+        return s
+    tokens = re.split(r"(\s+|[()/-])", s)
+    out: list[str] = []
+    for t in tokens:
+        if not t or t.isspace() or t in "()/-":
+            out.append(t)
+            continue
+        if re.search(r"\d", t):  # codes like AN640, TN951, 2A
+            out.append(t)
+            continue
+        upper = t.upper()
+        if upper in PRESERVE_TOKENS:
+            out.append(upper)
+            continue
+        # .capitalize() handles "JOHN'S" → "John's" natively.
+        out.append(t.capitalize())
+    return "".join(out)
 
 
 def _company_short(company: str | None) -> str:
@@ -66,14 +106,57 @@ def _export_routes(conn: sqlite3.Connection) -> list[dict]:
                 "co": _company_short(r["company"]),
                 "st": r["service_type"] or 1,
                 "pid": r["provider_route_id"] or "",
-                "oe": r["origin_en"] or "",
-                "de": r["destination_en"] or "",
+                "oe": _title_case_en(r["origin_en"] or ""),
+                "de": _title_case_en(r["destination_en"] or ""),
                 "ot": r["origin_tc"] or "",
                 "dt": r["destination_tc"] or "",
                 "dirs": sorted(dirs_by_key.get(r["route_key"], [1])),
             }
         )
     return routes
+
+
+def _merge_joint_routes(routes: list[dict]) -> list[dict]:
+    """Collapse KMB+CTB (or other cross-operator) joint services into a single
+    entry. Hong Kong has many cooperated routes (e.g. 101, 102, 112) where both
+    operators run the same route number between the same termini.
+
+    Policy: group by (route_id, normalized origin, normalized destination).
+    If a group has multiple operators, keep the KMB entry as primary (or the
+    alphabetically-first operator if no KMB) and attach the others as
+    `partners`. The client fetches ETA from every partner and merges.
+    """
+    def norm(s: str) -> str:
+        return re.sub(r"\W+", " ", (s or "").upper()).strip()
+
+    groups: dict[tuple, list[dict]] = defaultdict(list)
+    for r in routes:
+        groups[(r["id"], norm(r["oe"]), norm(r["de"]))].append(r)
+
+    merged: list[dict] = []
+    for group in groups.values():
+        if len(group) == 1:
+            merged.append(group[0])
+            continue
+        by_co: dict[str, list[dict]] = defaultdict(list)
+        for r in group:
+            by_co[r["co"]].append(r)
+        if len(by_co) == 1:
+            merged.extend(group)
+            continue
+        primary_co = "KMB" if "KMB" in by_co else sorted(by_co)[0]
+        primary = dict(by_co[primary_co][0])
+        partners = [
+            {"co": e["co"], "rk": e["rk"], "id": e["id"],
+             "pid": e["pid"], "st": e["st"]}
+            for entries in by_co.values()
+            for e in entries
+        ]
+        partners.sort(key=lambda p: (p["co"] != primary_co, p["co"]))
+        primary["partners"] = partners
+        merged.append(primary)
+    merged.sort(key=lambda r: (r["co"], r["id"]))
+    return merged
 
 
 def _export_stops(conn: sqlite3.Connection) -> dict[str, dict]:
@@ -86,7 +169,7 @@ def _export_stops(conn: sqlite3.Connection) -> dict[str, dict]:
     ).fetchall()
     return {
         r["stop_id"]: {
-            "ne": r["stop_name_en"] or "",
+            "ne": _title_case_en(r["stop_name_en"] or ""),
             "nt": r["stop_name_tc"] or "",
             "la": round(float(r["lat"]), 6),
             "lg": round(float(r["lng"]), 6),
@@ -157,6 +240,7 @@ def main() -> int:
     with sqlite3.connect(DB) as conn:
         conn.row_factory = sqlite3.Row
         routes = _export_routes(conn)
+        routes = _merge_joint_routes(routes)
         stops = _export_stops(conn)
         stop_routes = _export_stop_routes(conn)
 
@@ -166,10 +250,17 @@ def main() -> int:
 
     copied = 0
     if GEO_SRC.exists():
-        # Mirror geometry dir. Remove stale files that no longer exist upstream.
         existing = {p.name for p in OUT_GEO.glob("*.json")}
         for src in GEO_SRC.glob("*.json"):
-            shutil.copy2(src, OUT_GEO / src.name)
+            # Read-modify-write instead of shutil.copy2 so we can title-case
+            # stop_name while we're at it. Pretty-printing is skipped for size.
+            with open(src, encoding="utf-8") as f:
+                g = json.load(f)
+            for s in g.get("stops", []) or []:
+                if "stop_name" in s and s["stop_name"]:
+                    s["stop_name"] = _title_case_en(s["stop_name"])
+            with open(OUT_GEO / src.name, "w", encoding="utf-8") as f:
+                json.dump(g, f, ensure_ascii=False, separators=(",", ":"))
             existing.discard(src.name)
             copied += 1
         for stale in existing:
