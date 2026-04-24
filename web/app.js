@@ -688,7 +688,14 @@
 
     el.querySelectorAll(".yuu-stop-item").forEach((node) => {
       node.addEventListener("click", () => {
-        const stop = stops.find((x) => x.stop_id === node.dataset.stopId);
+        // Circular routes have identical stop_id at seq=1 and seq=last;
+        // distinguish by sequence so tapping stop 1 vs stop N behaves
+        // independently.
+        const stopId = node.dataset.stopId;
+        const seq = Number(node.dataset.seq);
+        const stop = stops.find(
+          (x) => x.stop_id === stopId && x.sequence === seq
+        ) || stops.find((x) => x.stop_id === stopId);
         if (stop) selectStop(stop);
       });
     });
@@ -697,11 +704,17 @@
   function selectStop(stop) {
     bumpActivity();
     // Allow re-clicking the already-selected stop to force a manual refresh.
-    const sameStop = state.selectedStop && state.selectedStop.stop_id === stop.stop_id;
+    const sameStop = state.selectedStop &&
+      state.selectedStop.stop_id === stop.stop_id &&
+      state.selectedStop.sequence === stop.sequence;
     state.selectedStop = stop;
 
+    // Match on both stop_id AND sequence so circular routes don't light up
+    // two rows (seq=1 and seq=N) when only one is selected.
     document.querySelectorAll(".yuu-stop-item").forEach((n) =>
-      n.classList.toggle("active", n.dataset.stopId === stop.stop_id)
+      n.classList.toggle("active",
+        n.dataset.stopId === stop.stop_id &&
+        Number(n.dataset.seq) === stop.sequence)
     );
 
     $("yuu-eta").hidden = false;
@@ -734,7 +747,9 @@
     }
 
     startEtaPolling();
-    const row = document.querySelector(`.yuu-stop-item[data-stop-id="${CSS.escape(stop.stop_id)}"]`);
+    const row = document.querySelector(
+      `.yuu-stop-item[data-stop-id="${CSS.escape(stop.stop_id)}"][data-seq="${stop.sequence}"]`
+    );
     if (row) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
