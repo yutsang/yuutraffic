@@ -37,10 +37,19 @@
     </div>
   </header>
 
+  <!-- Map is ALWAYS rendered (not inside a hidden section) so Leaflet can
+       initialise against a sized container and load tiles immediately. -->
+  <div id="yuu-map" class="yuu-map" aria-label="Route map"></div>
+
   <main class="yuu-main">
     <section id="yuu-welcome" class="yuu-welcome">
-      <p class="yuu-welcome-lead">Search a route number or destination to get started.</p>
+      <p class="yuu-welcome-lead">Search a route number or destination above to see stops and live ETA.</p>
       <p class="yuu-hint">Static data refreshes weekly · Live ETA fetched directly from HK government open data</p>
+      <p class="yuu-legend">
+        <span class="yuu-eta-time yuu-live">⚡ Live ETA</span>
+        <span class="yuu-eta-time yuu-scheduled">⏱ Scheduled</span>
+        <span class="yuu-eta-time yuu-arriving">Arriving</span>
+      </p>
     </section>
 
     <section id="yuu-route" class="yuu-route" hidden>
@@ -54,8 +63,6 @@
           </div>
         </div>
       </div>
-
-      <div id="yuu-map" class="yuu-map" aria-label="Route map"></div>
 
       <div class="yuu-stops-pane">
         <div id="yuu-stops" class="yuu-stops" aria-label="Stop list"></div>

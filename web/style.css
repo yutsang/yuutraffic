@@ -323,9 +323,49 @@
 
 .yuu-eta-time {
   font-weight: 600;
-  color: var(--yuu-accent);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  letter-spacing: 0.01em;
+}
+
+/* Live ETA from real-time vehicle data */
+.yuu-eta-time.yuu-live {
+  background: var(--yuu-accent-soft);
+  color: var(--yuu-accent);
+}
+
+/* Timetable-based (no GPS fix available — KMB marks these "Scheduled Bus") */
+.yuu-eta-time.yuu-scheduled {
+  background: #fef3c7;   /* amber-100 */
+  color:      #92400e;   /* amber-800 */
+}
+
+/* About to arrive (<= 0 min remaining) */
+.yuu-eta-time.yuu-arriving {
+  background: #fee2e2;   /* red-100 */
+  color:      #991b1b;   /* red-800 */
+  animation: yuu-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes yuu-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.65; }
+}
+
+.yuu-legend {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 20px;
+  font-size: 0.85rem;
+}
+
+.yuu-legend .yuu-eta-time {
+  cursor: default;
 }
 
 .yuu-eta-dest {
