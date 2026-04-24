@@ -18,7 +18,7 @@
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin="" />
-<link rel="stylesheet" href="./style.css?v=20260424015835-120259f5" />
+<link rel="stylesheet" href="./style.css?v=20260424020817-b21e29c1" />
 </head>
 <body>
 <div id="yuu" class="yuu-widget">
@@ -27,15 +27,10 @@
     <div class="yuu-search">
       <input type="search"
              id="yuu-search-input"
-             placeholder="Search route e.g. 65X, 1A, A22, 101…"
+             placeholder="Search route, or leave empty for routes near you"
              autocomplete="off"
              spellcheck="false"
              aria-label="Search route" />
-      <button type="button"
-              id="yuu-near-me"
-              class="yuu-near-me"
-              title="Find routes near me"
-              aria-label="Find routes near me">📍 Near me</button>
       <div id="yuu-search-results" class="yuu-search-results" hidden></div>
     </div>
   </header>
@@ -44,7 +39,7 @@
 
   <main class="yuu-main">
     <section id="yuu-welcome" class="yuu-welcome">
-      <p class="yuu-welcome-lead">Search a route number or destination, or tap <strong>📍 Near me</strong> to see what passes your current location.</p>
+      <p class="yuu-welcome-lead">Search a route number or destination. Focus the search box empty to see routes passing within 250 m of your current location.</p>
       <p class="yuu-hint">Static data refreshes weekly · Live ETA fetched directly from HK government open data</p>
       <p class="yuu-legend">
         <span class="yuu-eta-time yuu-live">⚡ Live ETA</span>
@@ -96,6 +91,6 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossorigin="" defer></script>
-<script src="./app.js?v=20260424015835-120259f5" defer></script>
+<script src="./app.js?v=20260424020817-b21e29c1" defer></script>
 </body>
 </html>

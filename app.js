@@ -8,7 +8,7 @@
   const POLL_MS = 20_000;
   const MAX_BACKOFF_MS = 120_000;
   const IDLE_STOP_MS = 10 * 60_000;
-  const NEAR_ME_RADIUS_M = 500;
+  const NEAR_ME_RADIUS_M = 250;
   const NEAR_ME_MAX_STOPS = 20;
 
   const ETA_PROVIDERS = {
@@ -44,6 +44,7 @@
     stopLayers: [],
     selectedStopLayer: null,
     youAreHereLayer: null,
+    nearbyRoutes: null,     // cached result of geolocation search
     etaTimer: null,
     etaErrorCount: 0,
     lastUserActionAt: Date.now(),
@@ -113,7 +114,6 @@
     initActivityTracking();
     initVisibility();
     initRefreshButton();
-    initNearMeButton();
     $("yuu-meta").textContent = "Loading routes…";
 
     try {
@@ -142,11 +142,11 @@
     try {
       if (navigator.permissions && navigator.permissions.query) {
         const p = await navigator.permissions.query({ name: "geolocation" });
-        if (p.state === "denied") return;   // respect prior denial
+        if (p.state === "denied") return;
       }
     } catch { /* Safari may not support permissions API — fall through */ }
     navigator.geolocation.getCurrentPosition(
-      (pos) => showNearbyRoutes(pos.coords.latitude, pos.coords.longitude)
+      (pos) => computeNearbyRoutes(pos.coords.latitude, pos.coords.longitude)
                  .catch((e) => console.warn(e)),
       (err) => console.info("Location unavailable:", err.message),
       { enableHighAccuracy: false, timeout: 12_000, maximumAge: 5 * 60_000 }
@@ -198,11 +198,16 @@
 
     input.addEventListener("input", () => {
       bumpActivity();
-      runSearch(input.value);
+      if (input.value.trim() === "") {
+        showNearbySuggestions();
+      } else {
+        runSearch(input.value);
+      }
     });
 
     input.addEventListener("focus", () => {
       if (input.value.trim()) runSearch(input.value);
+      else showNearbySuggestions();
     });
 
     document.addEventListener("click", (e) => {
@@ -247,14 +252,19 @@
     }
     const heading = title
       ? `<div class="yuu-search-heading">${escapeHtml(title)}</div>` : "";
-    results.innerHTML = heading + matches.map((r) => `
-      <div class="yuu-search-result" data-rk="${escapeHtml(r.rk)}">
+    results.innerHTML = heading + matches.map((r) => {
+      const tc = (r.ot && r.dt)
+        ? `<span class="yuu-search-result-tc">${escapeHtml(r.ot)} ↔ ${escapeHtml(r.dt)}</span>`
+        : "";
+      return `<div class="yuu-search-result" data-rk="${escapeHtml(r.rk)}">
         <span class="yuu-badge ${r.co}">${escapeHtml(r.id)}</span>
         <div class="yuu-search-result-body">
           <span class="yuu-search-result-name">${escapeHtml(r.oe)} ↔ ${escapeHtml(r.de)}</span>
+          ${tc}
           <span class="yuu-search-result-co">${escapeHtml(COMPANY_LABEL[r.co] || r.co)}</span>
         </div>
-      </div>`).join("");
+      </div>`;
+    }).join("");
     results.hidden = false;
 
     results.querySelectorAll(".yuu-search-result[data-rk]").forEach((node) => {
@@ -267,57 +277,29 @@
 
   // ---------------------------------------------------------------- near me
 
-  function initNearMeButton() {
-    const btn = $("yuu-near-me");
-    btn.addEventListener("click", async () => {
-      bumpActivity();
-      if (!navigator.geolocation) {
-        alert("Geolocation is not supported in this browser.");
-        return;
-      }
-      btn.disabled = true;
-      btn.textContent = "📍 Locating…";
-      try {
-        const pos = await new Promise((resolve, reject) =>
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000,
-          })
-        );
-        await showNearbyRoutes(pos.coords.latitude, pos.coords.longitude);
-      } catch (err) {
-        console.warn("Geolocation failed", err);
-        alert("Could not get your location. Make sure location permission is allowed.");
-      } finally {
-        btn.disabled = false;
-        btn.textContent = "📍 Near me";
-      }
-    });
-  }
-
-  async function showNearbyRoutes(lat, lng) {
-    // Drop a "you are here" marker
+  // Cache nearby results so focusing the empty search box repeatedly doesn't
+  // re-trigger geolocation or reload stops.json/stop_routes.json.
+  async function computeNearbyRoutes(lat, lng) {
     if (state.youAreHereLayer) state.map.removeLayer(state.youAreHereLayer);
     state.youAreHereLayer = L.circleMarker([lat, lng], {
       radius: 8, fillColor: "#3b82f6", color: "#ffffff",
       weight: 3, fillOpacity: 0.95,
     }).bindTooltip("You are here").addTo(state.map);
-    state.map.setView([lat, lng], 15);
+    state.map.setView([lat, lng], 16);
 
     const [stops, stopRoutes] = await Promise.all([
       ensureStopsLoaded(),
       ensureStopRoutesLoaded(),
     ]);
 
-    // Find nearest N stops within radius
     const nearby = [];
     for (const [stopId, s] of Object.entries(stops)) {
       const d = distanceM(lat, lng, s.la, s.lg);
-      if (d <= NEAR_ME_RADIUS_M) nearby.push({ stopId, d, stop: s });
+      if (d <= NEAR_ME_RADIUS_M) nearby.push({ stopId, d });
     }
     nearby.sort((a, b) => a.d - b.d);
     const topStops = nearby.slice(0, NEAR_ME_MAX_STOPS);
 
-    // Collect route keys serving any nearby stop
     const routeKeys = new Set();
     for (const n of topStops) {
       (stopRoutes[n.stopId] || []).forEach((rk) => routeKeys.add(rk));
@@ -327,11 +309,29 @@
       .filter((r) => routeKeys.has(r.rk))
       .sort((a, b) => compareRouteIds(a.id, b.id));
 
-    if (routes.length === 0) {
-      renderSearchResults([], "No routes found within 500 m");
+    state.nearbyRoutes = {
+      routes,
+      stopCount: topStops.length,
+      radiusM: NEAR_ME_RADIUS_M,
+    };
+
+    // If the search box is already empty and focused, refresh the dropdown.
+    const input = $("yuu-search-input");
+    if (input === document.activeElement && input.value.trim() === "") {
+      showNearbySuggestions();
+    }
+  }
+
+  function showNearbySuggestions() {
+    const n = state.nearbyRoutes;
+    if (!n || n.routes.length === 0) {
+      $("yuu-search-results").hidden = true;
       return;
     }
-    renderSearchResults(routes, `Routes passing within 500 m — ${topStops.length} stops nearby`);
+    renderSearchResults(
+      n.routes,
+      `Near you (${n.radiusM} m · ${n.stopCount} stops)`
+    );
   }
 
   // ------------------------------------------------------------- route panel
@@ -413,6 +413,13 @@
 
     try {
       const geo = await fetchJson(url);
+      // KMB's API omits seq=1 for some circular routes (the duplicated
+      // start-end stop), so the first stop comes in as sequence=2. Always
+      // renumber 1-based for display. stop_id is unchanged, so ETA still
+      // works for every entry.
+      if (Array.isArray(geo.stops)) {
+        geo.stops.forEach((s, i) => { s.sequence = i + 1; });
+      }
       state.geometry = geo;
       renderRouteOnMap(geo);
       renderStops(geo);
