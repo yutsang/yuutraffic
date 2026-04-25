@@ -94,6 +94,7 @@
     selectedStopLayer: null,
     youAreHereLayer: null,
     nearbyRoutes: null,     // cached result of geolocation search
+    userLocation: null,     // {lat, lng} after permission granted
     etaTimer: null,
     etaErrorCount: 0,
     lastUserActionAt: Date.now(),
@@ -223,8 +224,14 @@
       }
     } catch { /* Safari may not support permissions API — fall through */ }
     navigator.geolocation.getCurrentPosition(
-      (pos) => computeNearbyRoutes(pos.coords.latitude, pos.coords.longitude)
-                 .catch((e) => console.warn(e)),
+      (pos) => {
+        state.userLocation = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        };
+        computeNearbyRoutes(pos.coords.latitude, pos.coords.longitude)
+          .catch((e) => console.warn(e));
+      },
       (err) => console.info("Location unavailable:", err.message),
       { enableHighAccuracy: false, timeout: 12_000, maximumAge: 5 * 60_000 }
     );
@@ -481,7 +488,7 @@
     });
 
     updateRouteTitle();
-    await loadDirection();
+    await loadDirection({ autoFlip: true });
   }
 
   function initDirectionToggle() {
@@ -498,9 +505,64 @@
           b.classList.toggle("active", b === btn)
         );
         updateRouteTitle();
-        loadDirection();
+        // No auto-flip on manual direction change — user just made an
+        // explicit choice.
+        loadDirection({ autoFlip: false });
       });
     });
+  }
+
+  // After a route's geometry is loaded, see whether the user is actually
+  // closer to the OTHER direction's origin (= this direction's destination).
+  // Returns true if a flip happened (caller should bail since loadDirection
+  // re-runs with the new direction).
+  async function maybeSmartFlipDirection(route) {
+    if (!state.userLocation) return false;
+    if (!route?.dirs || route.dirs.length < 2) return false;
+    const stops = state.geometry?.stops;
+    if (!stops || stops.length < 2) return false;
+    const first = stops[0];
+    const last = stops[stops.length - 1];
+    if (typeof first.lat !== "number" || typeof last.lat !== "number") return false;
+
+    const u = state.userLocation;
+    const dFirst = distanceM(u.lat, u.lng, first.lat, first.lng);
+    const dLast = distanceM(u.lat, u.lng, last.lat, last.lng);
+    // Only flip if the other end is meaningfully closer (avoids ping-pong
+    // when user is roughly equidistant). 200 m of margin.
+    if (dLast + 200 >= dFirst) return false;
+
+    const otherDir = state.selectedDirection === 1 ? 2 : 1;
+    if (!route.dirs.includes(otherDir)) return false;
+
+    state.selectedDirection = otherDir;
+    document.querySelectorAll(".yuu-dir-btn").forEach((btn) =>
+      btn.classList.toggle("active", Number(btn.dataset.dir) === otherDir)
+    );
+    updateRouteTitle();
+    await loadDirection({ autoFlip: false });
+    return true;
+  }
+
+  // Picks a default stop for the freshly-loaded route so the ETA panel isn't
+  // empty. Prefers the stop closest to the user's location; otherwise falls
+  // back to stop 1.
+  function autoSelectDefaultStop() {
+    const stops = state.geometry?.stops;
+    if (!stops || stops.length === 0) return;
+    if (state.selectedStop) return;
+    let chosen = null;
+    if (state.userLocation) {
+      const u = state.userLocation;
+      let best = Infinity;
+      for (const s of stops) {
+        if (typeof s.lat !== "number" || typeof s.lng !== "number") continue;
+        const d = distanceM(u.lat, u.lng, s.lat, s.lng);
+        if (d < best) { best = d; chosen = s; }
+      }
+    }
+    if (!chosen) chosen = stops[0];
+    if (chosen) selectStop(chosen);
   }
 
   function updateRouteTitle() {
@@ -554,7 +616,7 @@
     }
   }
 
-  async function loadDirection() {
+  async function loadDirection({ autoFlip = false } = {}) {
     const r = state.selectedRoute;
     const d = state.selectedDirection;
     if (!r) return;
@@ -573,6 +635,14 @@
       state.geometry = geo;
       renderRouteOnMap(geo);
       renderStops(geo);
+
+      // Smart-default direction: if the user is closer to the OTHER end of
+      // the route than this direction's origin, flip. Only on initial load
+      // of the route (autoFlip=true), not on a manual direction-button tap.
+      if (autoFlip && (await maybeSmartFlipDirection(r))) {
+        return; // recursive load already ran with the flipped direction
+      }
+      autoSelectDefaultStop();
     } catch (err) {
       console.warn("No geometry for", r.rk, d, err);
       state.geometry = null;
