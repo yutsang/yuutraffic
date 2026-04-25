@@ -736,58 +736,41 @@
   .yuu-stop-name { font-size: 1rem; }
   .yuu-stop-name-tc { font-size: 0.85rem; }
 
-  /* -- ETA panel docked at bottom ------------------------------------ */
+  /* -- ETA panel inline within the stop list ------------------------- */
+  /* JS moves the .yuu-eta element to be the next sibling of the selected
+     stop row so the live arrivals appear immediately under that stop, no
+     scroll required to find them. Styled to look like an embedded card. */
   .yuu-eta {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 700;
-    border-radius: 18px 18px 0 0;
-    max-height: 45vh;
-    overflow-y: auto;
-    padding:
-      16px
-      max(16px, env(safe-area-inset-right))
-      max(18px, env(safe-area-inset-bottom))
-      max(16px, env(safe-area-inset-left));
-    box-shadow: 0 -6px 20px rgba(15, 23, 42, 0.18);
-    align-self: unset;
-    animation: yuu-eta-slide-up 220ms cubic-bezier(.2, .9, .25, 1);
+    position: static;
+    margin: 0;
+    border-radius: var(--yuu-radius);
+    border: 1px solid var(--yuu-route-color);
+    border-top: 4px solid var(--yuu-route-color);
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+    padding: 14px 16px;
+    background: var(--yuu-surface);
   }
 
-  /* Drag handle affordance at the top of the sheet */
-  .yuu-eta::before {
-    content: "";
-    display: block;
-    width: 36px;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--yuu-border);
-    margin: -6px auto 10px;
+  /* When inserted inside the stops list, blend with the row stack */
+  #yuu-stops > .yuu-eta {
+    margin: -1px 0;
+    border-radius: 0 0 var(--yuu-radius) var(--yuu-radius);
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    border-top-width: 4px;
   }
 
-  @keyframes yuu-eta-slide-up {
-    from { transform: translateY(100%); }
-    to   { transform: translateY(0); }
-  }
-
-  .yuu-eta-header {
-    align-items: center;
-  }
+  .yuu-eta-header { align-items: center; }
   .yuu-eta-stop-tc { font-size: 0.85rem; }
 
-  .yuu-refresh-btn {
-    width: 40px;
-    height: 40px;
-  }
+  .yuu-refresh-btn { width: 40px; height: 40px; }
 
   .yuu-eta-item { padding: 10px 0; }
   .yuu-eta-time { font-size: 1rem; padding: 4px 12px; }
 
-  /* Reserve space so the last stops aren't hidden behind the ETA sheet */
+  /* No more bottom padding hack — the ETA flows in normal order now. */
   .yuu-route:has(.yuu-eta:not([hidden])) {
-    padding-bottom: calc(45vh + 16px);
+    padding-bottom: 16px;
   }
 
   /* -- Search result rows: bigger tap targets ------------------------ */

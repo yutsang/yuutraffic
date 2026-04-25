@@ -390,14 +390,28 @@
     nearby.sort((a, b) => a.d - b.d);
     const topStops = nearby.slice(0, NEAR_ME_MAX_STOPS);
 
-    const routeKeys = new Set();
+    // For each candidate route, remember the distance to its closest nearby
+    // stop. This becomes the primary sort key.
+    const routeMinDist = new Map();
     for (const n of topStops) {
-      (stopRoutes[n.stopId] || []).forEach((rk) => routeKeys.add(rk));
+      for (const rk of (stopRoutes[n.stopId] || [])) {
+        const prev = routeMinDist.get(rk);
+        if (prev === undefined || prev > n.d) routeMinDist.set(rk, n.d);
+      }
     }
 
     const routes = state.routes
-      .filter((r) => routeKeys.has(r.rk))
-      .sort((a, b) => compareRouteIds(a.id, b.id));
+      .filter((r) => routeMinDist.has(r.rk))
+      .sort((a, b) => {
+        const dA = routeMinDist.get(a.rk) ?? Infinity;
+        const dB = routeMinDist.get(b.rk) ?? Infinity;
+        // Bucket distances in 50 m increments so routes at "the same stop"
+        // get the secondary natural sort by route id.
+        const bucketA = Math.floor(dA / 50);
+        const bucketB = Math.floor(dB / 50);
+        if (bucketA !== bucketB) return bucketA - bucketB;
+        return compareRouteIds(a.id, b.id);
+      });
 
     state.nearbyRoutes = {
       routes,
@@ -405,7 +419,6 @@
       radiusM: NEAR_ME_RADIUS_M,
     };
 
-    // If the search box is already empty and focused, refresh the dropdown.
     const input = $("yuu-search-input");
     if (input === document.activeElement && input.value.trim() === "") {
       showNearbySuggestions();
@@ -547,6 +560,27 @@
   // Picks a default stop for the freshly-loaded route so the ETA panel isn't
   // empty. Prefers the stop closest to the user's location; otherwise falls
   // back to stop 1.
+  // Move the ETA card inline (right after the selected stop row) on mobile,
+  // back to its home in the stops-pane on desktop. Re-running renderStops
+  // wipes the row, so we always restore the home parent before re-rendering.
+  function placeEtaForRow(row) {
+    const eta = $("yuu-eta");
+    if (!eta) return;
+    const home = document.querySelector(".yuu-stops-pane");
+    const isMobile = window.matchMedia("(max-width: 768px)").matches;
+    if (isMobile && row) {
+      row.insertAdjacentElement("afterend", eta);
+    } else if (home && eta.parentElement !== home) {
+      home.appendChild(eta);
+    }
+  }
+
+  function returnEtaHome() {
+    const eta = $("yuu-eta");
+    const home = document.querySelector(".yuu-stops-pane");
+    if (eta && home && eta.parentElement !== home) home.appendChild(eta);
+  }
+
   function autoSelectDefaultStop() {
     const stops = state.geometry?.stops;
     if (!stops || stops.length === 0) return;
@@ -739,6 +773,9 @@
   // ------------------------------------------------------------------ stops
 
   function renderStops(geo) {
+    // The ETA card might have been moved INTO a stop row on mobile; pull it
+    // back to the stops-pane before we wipe stops.innerHTML or it gets lost.
+    returnEtaHome();
     const el = $("yuu-stops");
     const stops = geo.stops || [];
     if (stops.length === 0) {
@@ -803,23 +840,19 @@
         radius: 10, fillColor: color,
         color: "#ffffff", weight: 4, fillOpacity: 1,
       }).addTo(state.map);
-      state.map.setView([stop.lat, stop.lng], 16, { animate: true });
-      // On mobile, the ETA sheet docks from the bottom and can cover the
-      // stop marker. Nudge the map so the marker sits in the upper portion
-      // of the visible area above the sheet.
-      if (window.matchMedia("(max-width: 768px)").matches) {
-        const nudge = () => {
-          const sheetH = ($("yuu-eta")?.offsetHeight) || 0;
-          if (sheetH > 0) state.map.panBy([0, sheetH * 0.45], { animate: true });
-        };
-        setTimeout(nudge, 260);
-      }
+      // No auto-pan here. The route polyline is already framed by fitBounds
+      // when the route loaded; tapping a stop just highlights its marker.
+      // Users can pan the map manually if they want a closer look.
     }
 
     startEtaPolling();
+
+    // On mobile, render the ETA card inline immediately after the selected
+    // stop row so the live information sits next to its stop in the list.
     const row = document.querySelector(
       `.yuu-stop-item[data-stop-id="${CSS.escape(stop.stop_id)}"][data-seq="${stop.sequence}"]`
     );
+    placeEtaForRow(row);
     if (row) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
@@ -1018,10 +1051,17 @@
   function initViewportResize() {
     const resync = () => {
       if (state.map) state.map.invalidateSize();
+      // Re-place the ETA card so mobile↔desktop transitions land it
+      // either inline next to the selected stop or back in the side column.
+      if (state.selectedStop) {
+        const row = document.querySelector(
+          `.yuu-stop-item[data-stop-id="${CSS.escape(state.selectedStop.stop_id)}"][data-seq="${state.selectedStop.sequence}"]`
+        );
+        placeEtaForRow(row);
+      }
     };
     window.addEventListener("resize", resync);
     window.addEventListener("orientationchange", () => setTimeout(resync, 120));
-    // iOS Safari fires visualViewport.resize when the URL bar shows/hides.
     if (window.visualViewport) {
       window.visualViewport.addEventListener("resize", resync);
     }
