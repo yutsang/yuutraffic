@@ -63,6 +63,16 @@
   padding: 16px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  /* Discourage casual copying of route names + ETA. Inputs override this. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.yuu-widget input,
+.yuu-widget select {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .yuu-header {
@@ -117,6 +127,26 @@
 }
 
 .yuu-search input:focus {
+  outline: none;
+  border-color: var(--yuu-accent-bright);
+  box-shadow: 0 0 0 3px rgba(0, 145, 218, 0.18);
+}
+
+.yuu-mode-select {
+  flex-shrink: 0;
+  padding: 0 8px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  border: 1px solid var(--yuu-border);
+  border-radius: var(--yuu-radius);
+  background: var(--yuu-surface);
+  color: var(--yuu-text);
+  min-height: 38px;
+  max-width: 110px;
+  cursor: pointer;
+}
+
+.yuu-mode-select:focus {
   outline: none;
   border-color: var(--yuu-accent-bright);
   box-shadow: 0 0 0 3px rgba(0, 145, 218, 0.18);
@@ -257,6 +287,39 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+
+/* Single-row chip toolbar with operator label, schedule chips, and
+   direction chips. Wraps if needed. */
+.yuu-route-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.yuu-dir-chip {
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--yuu-route-color);
+  background: var(--yuu-surface);
+  color: var(--yuu-route-color);
+  cursor: pointer;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+.yuu-dir-chip.active {
+  background: var(--yuu-route-color);
+  color: var(--yuu-route-text);
+}
+
+.yuu-dir-chip:hover:not(.active) {
+  background: var(--yuu-route-color-soft);
 }
 
 .yuu-company-label {
@@ -413,14 +476,17 @@
   flex-direction: column;
 }
 
-.yuu-stop-name {
+/* TC name is the primary label (rendered first); EN sits beneath it as a
+   secondary line in muted text. */
+.yuu-stop-name-tc {
   font-size: 0.95rem;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.yuu-stop-name-tc {
+.yuu-stop-name {
   font-size: 0.78rem;
   color: var(--yuu-muted);
   overflow: hidden;
@@ -596,6 +662,35 @@
   font-style: italic;
 }
 
+/* Map marker popup with stop label + a few upcoming arrivals. */
+.leaflet-popup-content .yuu-map-popup {
+  font-family: var(--yuu-font);
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+.leaflet-popup-content .yuu-map-popup strong {
+  display: block;
+  font-size: 0.95rem;
+  margin-bottom: 2px;
+}
+.leaflet-popup-content .yuu-map-popup-en {
+  color: var(--yuu-muted);
+  font-size: 0.78rem;
+  margin-bottom: 6px;
+}
+.leaflet-popup-content .yuu-map-popup-eta {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.leaflet-popup-content .yuu-map-popup-eta li {
+  display: flex;
+  justify-content: flex-start;
+}
+
 .yuu-eta-error {
   color: var(--yuu-danger);
   padding: 8px 0;
@@ -678,12 +773,44 @@
     max-height: 50vh;
   }
 
-  /* -- Map: adaptive height ------------------------------------------ */
+  /* -- Map: adaptive height + sticky -------------------------------- */
   .yuu-map {
-    height: 40svh;            /* small-viewport-height: correct on iOS */
-    min-height: 260px;
-    max-height: 460px;
-    margin-bottom: 12px;
+    height: 32svh;
+    min-height: 220px;
+    max-height: 400px;
+    margin: 0 -10px 0;
+    border-radius: 0;
+    position: sticky;
+    top: 56px;                /* below the sticky search header */
+    z-index: 500;
+  }
+
+  /* Route header sticks below the map so direction chips and operator
+     label stay visible while the user scrolls the stop list. */
+  .yuu-route-header {
+    position: sticky;
+    top: calc(56px + 32svh);
+    z-index: 400;
+    background: var(--yuu-bg);
+    margin: 0 -10px;
+    padding: 10px;
+    border-bottom: 1px solid var(--yuu-border);
+  }
+
+  .yuu-route-chips {
+    margin-top: 4px;
+    gap: 5px;
+  }
+
+  /* The widget container itself has user-select:none; mobile bump for
+     long-press on map markers (Leaflet uses pointer events). */
+  .yuu-stop-name,
+  .yuu-stop-name-tc,
+  .yuu-eta-time,
+  .yuu-eta-dest {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
   }
 
   /* -- Route panel ---------------------------------------------------- */
@@ -694,32 +821,16 @@
   .yuu-route-title { font-size: 1rem; }
   .yuu-route-subtitle { font-size: 0.9rem; }
 
-  /* -- Direction toggle as a full-width segmented control ------------ */
-  .yuu-direction-toggle {
-    width: 100%;
-    display: grid;
-    grid-auto-columns: 1fr;
-    grid-auto-flow: column;
-    gap: 0;
-    border: 1px solid var(--yuu-border);
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  .yuu-dir-btn {
-    min-height: 40px;
-    border: 0;
-    border-right: 1px solid var(--yuu-border);
-    border-radius: 0;
-    padding: 10px 12px;
-    font-size: 0.95rem;
-  }
-  .yuu-dir-btn:last-child { border-right: 0; }
+  /* (Old segmented direction toggle removed — direction chips render
+     inline in .yuu-route-chips now.) */
 
-  /* -- Stops list: full-bleed, taller rows --------------------------- */
+  /* -- Stops list: full-bleed, taller rows, scrolls under stickies -- */
   .yuu-stops {
     max-height: none;
-    border-radius: var(--yuu-radius);
-    /* leave room for the docked ETA panel when it's present */
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    margin: 0 -10px;
     padding-bottom: 8px;
   }
   .yuu-stop-item {
@@ -733,8 +844,8 @@
     border-radius: 16px;
     font-size: 0.9rem;
   }
-  .yuu-stop-name { font-size: 1rem; }
-  .yuu-stop-name-tc { font-size: 0.85rem; }
+  .yuu-stop-name-tc { font-size: 1rem; }
+  .yuu-stop-name { font-size: 0.82rem; }
 
   /* -- ETA panel inline within the stop list ------------------------- */
   /* JS moves the .yuu-eta element to be the next sibling of the selected
