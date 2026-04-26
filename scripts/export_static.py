@@ -83,6 +83,17 @@ def _title_case_en(s: str | None) -> str:
     return "".join(out)
 
 
+def _clean_mtrb_label(s: str | None) -> str:
+    """MTR Bus origin/destination strings come pre-decorated by the data
+    updater as 'ROUTE · STOP_CODE — DISTRICT' because the official MTR Bus
+    API doesn't expose stop names. Keep just the human-readable district
+    half (after the em-dash) so the route card reads cleanly."""
+    if not s:
+        return s or ""
+    m = re.search(r"—\s*(.+?)\s*$", s)
+    return m.group(1) if m else s
+
+
 def _company_short(company: str | None) -> str:
     c = (company or "").upper()
     if "KMB" in c or "LWB" in c:
@@ -192,6 +203,11 @@ def _export_routes(conn: sqlite3.Connection) -> list[dict]:
                     ot, dt = meta["ot"], meta["dt"]
                     break
 
+        if company == "MTRB":
+            oe = _clean_mtrb_label(oe)
+            de = _clean_mtrb_label(de)
+            ot = _clean_mtrb_label(ot)
+            dt = _clean_mtrb_label(dt)
         routes.append({
             "rk": rk,
             "id": route_id,
