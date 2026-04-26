@@ -208,34 +208,52 @@ def _export_routes(conn: sqlite3.Connection) -> list[dict]:
     return routes
 
 
-def _route_stop_sets(conn: sqlite3.Connection) -> dict[tuple[str, int], set[str]]:
-    """Map each (route_key, service_type) to the set of stop_ids it serves.
-
-    Keyed by the full variant so the joint-detection Jaccard check compares
-    like with like (KMB 219X st=1 vs 219X st=4 are different routes, so they
-    shouldn't be lumped together just because they share a route_key).
+def _route_stop_sets(conn: sqlite3.Connection) -> dict[tuple[str, int], set[tuple[int, int]]]:
+    """Map each (route_key, service_type) to the set of stop COORDINATES it
+    serves, rounded to ~11 m (4 decimal places). KMB and Citybus maintain
+    independent stop_id registries, so a joint route (e.g., 101 or 621)
+    looks like two completely disjoint sets when keyed by stop_id. Comparing
+    coordinates fixes that — buses physically stop at the same kerb and the
+    coordinates from each operator's API agree to a few metres.
     """
     rows = conn.execute(
-        "SELECT route_key, COALESCE(service_type, 1) AS st, stop_id FROM route_stops "
-        "WHERE route_key IS NOT NULL AND stop_id IS NOT NULL"
+        """
+        SELECT rs.route_key, COALESCE(rs.service_type, 1) AS st,
+               s.lat AS lat, s.lng AS lng
+        FROM route_stops rs
+        JOIN stops s ON s.stop_id = rs.stop_id
+        WHERE rs.route_key IS NOT NULL
+          AND s.lat IS NOT NULL AND s.lng IS NOT NULL
+        """
     ).fetchall()
-    out: dict[tuple[str, int], set[str]] = defaultdict(set)
+    out: dict[tuple[str, int], set[tuple[int, int]]] = defaultdict(set)
     for r in rows:
-        out[(r["route_key"], int(r["st"]))].add(r["stop_id"])
+        # Round to a ≈ 50 m grid. KMB and Citybus publish stop coords for
+        # the same physical kerb that differ by 10–40 m (one uses the
+        # entrance, the other the road centreline). 4dp (≈ 11 m) was too
+        # tight; 3dp (≈ 110 m) risks matching unrelated nearby stops.
+        # Use a grid sized between them.
+        key = (int(round(float(r["lat"]) * 2000)),
+               int(round(float(r["lng"]) * 2000)))
+        out[(r["route_key"], int(r["st"]))].add(key)
     return dict(out)
 
 
 def _merge_joint_routes(
-    routes: list[dict], stop_sets: dict[tuple[str, int], set[str]]
+    routes: list[dict], stop_sets: dict[tuple[str, int], set[tuple[int, int]]]
 ) -> list[dict]:
-    """Collapse jointly-operated routes (e.g. KMB+CTB 101) into a single entry.
+    """Collapse jointly-operated routes (e.g. KMB+CTB 101 or 621) into one
+    entry. The stop_sets values are sets of rounded (lat, lng) tuples so
+    operators with independent stop registries can still be matched.
 
-    Grouped by (route_id, service_type) so each variant is joined only with
-    its matching counterpart on the other operator. Jaccard overlap ≥ 0.5
-    qualifies as joint; KMB 1 (Kowloon) vs Citybus 1 (HK Island) have zero
-    overlap so stay separate.
+    Grouped by (route_id, service_type). Jaccard overlap ≥ 0.5 qualifies as
+    joint; KMB 1 (Kowloon) vs Citybus 1 (HK Island) have ~0 overlap so they
+    stay separate.
     """
-    JACCARD_THRESHOLD = 0.5
+    # Calibrated empirically: with the ~50 m grid above, genuine joints
+    # (101, 621, 182…) score ~0.45 while same-number unrelated routes
+    # (KMB 1 vs CTB 1) score 0. 0.3 is comfortably between the two.
+    JACCARD_THRESHOLD = 0.3
 
     by_variant: dict[tuple[str, int], list[dict]] = defaultdict(list)
     for r in routes:
