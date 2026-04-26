@@ -1088,8 +1088,8 @@
     const eta = $("yuu-eta");
     if (!eta) return;
     const home = document.querySelector(".yuu-stops-pane");
-    const isMobile = window.matchMedia("(max-width: 768px)").matches;
-    if (isMobile && row) {
+    if (row) {
+      // Always insert ETA inline after the selected stop row (desktop + mobile).
       row.insertAdjacentElement("afterend", eta);
     } else if (home && eta.parentElement !== home) {
       home.appendChild(eta);
@@ -1396,10 +1396,11 @@
         const labels = splitStopLabels(stop);
         state.selectedStopLayer
           .bindPopup(
-            `<div class="yuu-map-popup"><strong>${escapeHtml(labels.tc || labels.en)}</strong>` +
+            `<div class="yuu-map-popup">` +
+            `<strong><span class="yuu-map-popup-seq">${stop.sequence}</span> ${escapeHtml(labels.tc || labels.en)}</strong>` +
             (labels.tc ? `<div class="yuu-map-popup-en">${escapeHtml(labels.en)}</div>` : "") +
             `<ol class="yuu-map-popup-eta"><li class="yuu-eta-empty">Loading…</li></ol></div>`,
-            { maxWidth: 240, className: "yuu-popup-wrap" }
+            { maxWidth: 260, className: "yuu-popup-wrap" }
           )
           .openPopup();
       }

@@ -315,16 +315,36 @@
 
 /* ---- Route badges --------------------------------------------------- */
 
+/* Operator badge styled like a clipped luggage tag: chamfered left edge
+   with a small "punch-hole" mark. Just the route code / line code on it. */
 .yuu-badge {
+  position: relative;
   display: inline-block;
-  padding: 3px 10px;
+  padding: 3px 12px 3px 18px;
   font-weight: 700;
-  border-radius: 4px;
   font-size: 0.9rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   flex-shrink: 0;
+  letter-spacing: 0.02em;
+  border-radius: 0 4px 4px 0;
+  clip-path: polygon(10px 0, 100% 0, 100% 100%, 10px 100%, 0 50%);
 }
+
+.yuu-badge::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+/* CTB's yellow needs darker punch-hole + stroke for legibility */
+.yuu-badge.CTB::before { background: rgba(0, 0, 0, 0.25); }
 
 .yuu-badge.KMB  { background: #e63946; color: #fff; }
 .yuu-badge.CTB  { background: #f5b800; color: #1a1a1a; }
@@ -473,14 +493,13 @@
   background: #eef2f7;
 }
 
+/* Single-column on every viewport — the ETA card is inserted directly
+   after the selected stop row, so a separate side column was unnecessary.
+   Mobile and desktop now share the same flow. */
 .yuu-stops-pane {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 16px;
-}
-
-@media (max-width: 768px) {
-  .yuu-stops-pane { grid-template-columns: 1fr; }
 }
 
 /* ---- Stops list ----------------------------------------------------- */
@@ -730,9 +749,24 @@
   line-height: 1.35;
 }
 .leaflet-popup-content .yuu-map-popup strong {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 0.95rem;
   margin-bottom: 2px;
+}
+.leaflet-popup-content .yuu-map-popup-seq {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  background: var(--yuu-route-color);
+  color: var(--yuu-route-text);
+  border-radius: 50%;
+  font-size: 0.78rem;
+  font-weight: 700;
+  flex-shrink: 0;
 }
 .leaflet-popup-content .yuu-map-popup-en {
   color: var(--yuu-muted);
