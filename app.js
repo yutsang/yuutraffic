@@ -118,6 +118,8 @@
     etaTimer: null,
     etaErrorCount: 0,
     lastUserActionAt: Date.now(),
+    lastEtaUpdateAt: 0,     // ms timestamp of most recent successful ETA poll
+    freshTickTimer: null,   // updates the "n seconds ago" label
   };
 
   // --------------------------------------------------------- utility helpers
@@ -141,18 +143,19 @@
   ]);
 
   // Stops typically come back from KMB as "Laguna City Bus Terminus (LT970)"
-  // (English) and "麗港城總站 (LT970)" (Chinese). The code at the end is
-  // duplicated; strip it from the English when both halves carry it.
+  // (English) and "麗港城總站 (LT970)" (Chinese). User wants TC clean on row 1
+  // and the stop-id code attached to the EN row 2 — so strip from TC, keep
+  // on EN when both halves carry the same code.
   function splitStopLabels(stop) {
-    const tcRaw = stop.stop_name_tc || "";
-    let en = displayEn(stop.stop_name || stop.stop_id || "");
+    let tc = stop.stop_name_tc || "";
+    const en = displayEn(stop.stop_name || stop.stop_id || "");
     const codeRe = /\s*\(([A-Z0-9-]{3,})\)\s*$/i;
-    const tcCode = tcRaw.match(codeRe);
+    const tcCode = tc.match(codeRe);
     const enCode = en.match(codeRe);
     if (tcCode && enCode && tcCode[1].toUpperCase() === enCode[1].toUpperCase()) {
-      en = en.replace(codeRe, "").trim();
+      tc = tc.replace(codeRe, "").trim();
     }
-    return { tc: tcRaw, en };
+    return { tc, en };
   }
 
   function displayEn(s) {
@@ -813,14 +816,6 @@
                       .every((p) => APPROXIMATE_OPERATORS.has(p.co));
     const dirs = route.dirs && route.dirs.length ? route.dirs : [1];
 
-    const dirLabel = (d) => {
-      const r = state.selectedRoute;
-      if (!r) return d === 1 ? "Out" : "In";
-      const outName = d === 1 ? r.de : r.oe;
-      const trim = (s) => (s || "").split(/[(]|·|,/)[0].trim().slice(0, 14);
-      return `→ ${trim(outName) || (d === 1 ? "Out" : "In")}`;
-    };
-
     const parts = [];
     parts.push(`<span class="yuu-op-text">${escapeHtml(opNames)}</span>`);
     badges.forEach((b) => {
@@ -829,28 +824,32 @@
     if (allApprox) {
       parts.push(`<span class="yuu-schedule-chip yuu-approx-chip" title="Coordinates are best-effort">Approximate · 路線僅供參考</span>`);
     }
-    dirs.forEach((d) => {
-      const active = d === state.selectedDirection ? " active" : "";
+    // Direction toggle — collapsed to a single swap-icon button when the
+    // route has both directions. The current direction is shown by the
+    // route title (X → Y); the icon flips it.
+    if (dirs.length > 1) {
       parts.push(
-        `<button type="button" class="yuu-dir-chip${active}" data-dir="${d}">${escapeHtml(dirLabel(d))}</button>`
+        `<button type="button" class="yuu-dir-toggle" title="Swap direction" aria-label="Swap direction">⇆</button>`
       );
-    });
+    }
     host.innerHTML = parts.join("");
 
-    host.querySelectorAll(".yuu-dir-chip").forEach((btn) => {
-      btn.addEventListener("click", () => {
+    const swap = host.querySelector(".yuu-dir-toggle");
+    if (swap) {
+      swap.addEventListener("click", () => {
         bumpActivity();
-        const d = Number(btn.dataset.dir);
-        if (!state.selectedRoute || d === state.selectedDirection) return;
-        state.selectedDirection = d;
+        if (!state.selectedRoute || dirs.length < 2) return;
+        const next = state.selectedDirection === 1 ? 2 : 1;
+        if (!dirs.includes(next)) return;
+        state.selectedDirection = next;
         state.selectedStop = null;
         $("yuu-eta").hidden = true;
         stopEtaPolling();
-        renderRouteChips(state.selectedRoute); // re-mark active
+        renderRouteChips(state.selectedRoute);
         updateRouteTitle();
         loadDirection({ autoFlip: false });
       });
-    });
+    }
   }
 
   // Empty stub kept for backward compat (init flow used to call this).
@@ -1238,6 +1237,26 @@
         setTimeout(() => btn.classList.remove("spinning"), 400);
       });
     });
+    // Re-render the "X seconds ago" label every few seconds so freshness
+    // is always accurate without re-rendering the whole ETA list.
+    state.freshTickTimer = setInterval(tickFreshness, 5000);
+  }
+
+  function tickFreshness() {
+    const fresh = $("yuu-eta-fresh");
+    if (!fresh) return;
+    const t = state.lastEtaUpdateAt;
+    if (!t) { fresh.textContent = ""; return; }
+    const sec = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (sec < 5)        fresh.textContent = "Just now";
+    else if (sec < 60)  fresh.textContent = `${sec} sec ago`;
+    else if (sec < 3600) {
+      const m = Math.floor(sec / 60);
+      fresh.textContent = `${m} min${m === 1 ? "" : "s"} ago`;
+    } else {
+      const h = Math.floor(sec / 3600);
+      fresh.textContent = `${h} hr${h === 1 ? "" : "s"} ago`;
+    }
   }
 
   function startEtaPolling() {
@@ -1397,9 +1416,12 @@
 
   function renderEta(etas, errorMsg) {
     const list = $("yuu-eta-list");
-    const fresh = $("yuu-eta-fresh");
-    const now = new Date();
-    fresh.textContent = errorMsg ? "" : `Updated ${now.toLocaleTimeString()}`;
+    if (!errorMsg) {
+      state.lastEtaUpdateAt = Date.now();
+      tickFreshness();
+    } else {
+      $("yuu-eta-fresh").textContent = "";
+    }
 
     if (errorMsg) {
       list.innerHTML = `<li class="yuu-eta-error">${escapeHtml(errorMsg)}</li>`;
