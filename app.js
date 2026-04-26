@@ -303,19 +303,40 @@
     const route   = $("yuu-route");
     const sel     = $("yuu-mode-select");
 
+    const mtrView = $("yuu-mtr-view");
+    const map     = $("yuu-map");
+
     if (tab === "plan") {
       if (explore) explore.hidden = true;
       if (welcome) welcome.hidden = true;
       if (route)   route.hidden   = true;
+      if (mtrView) mtrView.hidden = true;
       if (planSec) planSec.hidden = false;
+      if (map)     map.hidden     = false;
       $("yuu-plan-from")?.focus();
       return;
     }
 
     if (planSec) planSec.hidden = true;
+
+    if (tab === "mtr") {
+      // Dedicated MTR view: line chips + station diagram, no map / search.
+      if (explore) explore.hidden = true;
+      if (welcome) welcome.hidden = true;
+      if (route)   route.hidden   = true;
+      if (map)     map.hidden     = true;
+      if (mtrView) mtrView.hidden = false;
+      ensureMtrLinesRendered();
+      stopMtrEtaPolling();
+      return;
+    }
+
+    // Bus tab
+    if (mtrView) mtrView.hidden = true;
+    if (map)     map.hidden     = false;
     if (explore) explore.hidden = false;
-    // Operator-narrow dropdown only makes sense on the Bus tab.
-    if (sel) sel.style.display = (tab === "bus") ? "" : "none";
+    if (sel)     sel.style.display = (tab === "bus") ? "" : "none";
+    stopMtrEtaPolling();
 
     // Refresh the visible content depending on whether a route is selected
     // and whether it belongs to the active tab.
@@ -335,6 +356,166 @@
     if (input) {
       if (input.value.trim()) runSearch(input.value);
       else showNearbySuggestions();
+    }
+  }
+
+  // ============================================================ MTR View
+  // Dedicated, network-style UI for the MTR rail tab. Designed to feel like
+  // a metro app rather than the bus list:
+  //   - Top: scrollable row of line chips, each in its brand colour.
+  //   - Below: vertical station diagram with the line drawn in its colour.
+  //   - Tap a station → expand inline with UP / DOWN next-train pills.
+
+  let mtrEtaTimer = null;
+  let activeMtrStationEl = null;
+
+  function ensureMtrLinesRendered() {
+    const host = $("yuu-mtr-lines");
+    if (!host || host.dataset.rendered === "true") return;
+    const lines = state.routes.filter((r) => r.co === "MTR");
+    if (lines.length === 0) {
+      host.innerHTML = `<div class="yuu-search-empty">Loading lines…</div>`;
+      return;
+    }
+    lines.sort((a, b) => a.id.localeCompare(b.id));
+    host.innerHTML = lines.map((r) => {
+      const c = MTR_LINE_COLOR[r.id] || "#1d3557";
+      return `<button type="button" class="yuu-mtr-line-chip"
+                      data-rk="${escapeHtml(r.rk)}"
+                      title="${escapeHtml((r.oe || "") + " ↔ " + (r.de || ""))}"
+                      style="--c:${c}; background:${c}">
+        ${escapeHtml(r.id)}
+      </button>`;
+    }).join("");
+    host.dataset.rendered = "true";
+    host.querySelectorAll(".yuu-mtr-line-chip").forEach((btn) => {
+      btn.addEventListener("click", () => selectMtrLine(btn.dataset.rk));
+    });
+    // Auto-pick the first line so the user lands on something visible.
+    const first = lines[0];
+    if (first) selectMtrLine(first.rk);
+  }
+
+  async function selectMtrLine(rk) {
+    document.querySelectorAll(".yuu-mtr-line-chip").forEach((b) =>
+      b.classList.toggle("active", b.dataset.rk === rk)
+    );
+    const route = state.routes.find((r) => r.rk === rk);
+    if (!route) return;
+    state.selectedMtrLine = route;
+    stopMtrEtaPolling();
+    activeMtrStationEl = null;
+    const detail = $("yuu-mtr-line-detail");
+    detail.innerHTML = `<div class="yuu-mtr-eta-loading">Loading line…</div>`;
+    try {
+      // Lazy-load stops.json once so train destination 3-letter codes
+      // can be resolved into station names in pollMtrStationEta.
+      ensureStopsLoaded().catch(() => {});
+      const geo = await fetchJson(`${DATA_BASE}/geometry/${rk}_1.json`);
+      renderMtrLineDetail(route, geo);
+    } catch (err) {
+      detail.innerHTML = `<div class="yuu-search-empty">Could not load this line.</div>`;
+    }
+  }
+
+  function renderMtrLineDetail(route, geo) {
+    const detail = $("yuu-mtr-line-detail");
+    const c = MTR_LINE_COLOR[route.id] || "#1d3557";
+    const stations = geo.stops || [];
+    const oe = displayEn(route.oe || "");
+    const de = displayEn(route.de || "");
+    const head = `
+      <div class="yuu-mtr-line-title" style="background:${c}">
+        <div class="yuu-mtr-line-id">${escapeHtml(route.id)}</div>
+        <div class="yuu-mtr-line-names">
+          <div>${escapeHtml(oe)} ↔ ${escapeHtml(de)}</div>
+          ${(route.ot && route.dt)
+            ? `<div class="yuu-mtr-line-tc">${escapeHtml(route.ot)} ↔ ${escapeHtml(route.dt)}</div>`
+            : ""}
+        </div>
+      </div>`;
+    const rows = stations.map((s) => `
+      <div class="yuu-mtr-station"
+           data-line="${escapeHtml(s.mtr_line || route.id)}"
+           data-station="${escapeHtml(s.mtr_code || "")}">
+        <div class="yuu-mtr-station-row">
+          <div class="yuu-mtr-station-name">${escapeHtml(s.stop_name_tc || "")}</div>
+          <div class="yuu-mtr-station-en">${escapeHtml(displayEn(s.stop_name) || s.mtr_code || "")}</div>
+        </div>
+        <div class="yuu-mtr-station-eta" hidden></div>
+      </div>`).join("");
+    detail.innerHTML = head + `<div class="yuu-mtr-stations" style="--line-color:${c}">${rows}</div>`;
+    detail.querySelectorAll(".yuu-mtr-station").forEach((el) => {
+      el.addEventListener("click", () => selectMtrStation(el));
+    });
+  }
+
+  async function selectMtrStation(el) {
+    bumpActivity();
+    if (activeMtrStationEl && activeMtrStationEl !== el) {
+      activeMtrStationEl.classList.remove("active");
+      const old = activeMtrStationEl.querySelector(".yuu-mtr-station-eta");
+      if (old) old.hidden = true;
+    } else if (activeMtrStationEl === el) {
+      // Re-tap → just refresh
+      pollMtrStationEta();
+      return;
+    }
+    el.classList.add("active");
+    const eta = el.querySelector(".yuu-mtr-station-eta");
+    if (eta) {
+      eta.hidden = false;
+      eta.innerHTML = `<div class="yuu-mtr-eta-loading">Loading…</div>`;
+    }
+    activeMtrStationEl = el;
+    stopMtrEtaPolling();
+    await pollMtrStationEta();
+    mtrEtaTimer = setInterval(pollMtrStationEta, 15_000);
+  }
+
+  function stopMtrEtaPolling() {
+    if (mtrEtaTimer) { clearInterval(mtrEtaTimer); mtrEtaTimer = null; }
+  }
+
+  async function pollMtrStationEta() {
+    if (!activeMtrStationEl) return;
+    if (document.hidden) return;
+    const code = activeMtrStationEl.dataset.station;
+    const line = activeMtrStationEl.dataset.line;
+    const eta  = activeMtrStationEl.querySelector(".yuu-mtr-station-eta");
+    if (!code || !line || !eta) return;
+    try {
+      const raw = await fetchJson(
+        `https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line=${encodeURIComponent(line)}&sta=${encodeURIComponent(code)}`,
+        { cache: "no-store" }
+      );
+      const v = (raw.data && raw.data[`${line}-${code}`]) || {};
+      const stops = state.stops || {};
+      const fmt = (e) => {
+        const iso = e.time ? e.time.replace(" ", "T") + "+08:00" : null;
+        const mins = iso ? Math.round((new Date(iso).getTime() - Date.now()) / 60_000) : null;
+        const label = (mins == null) ? "—"
+                    : mins <= 0     ? "Now"
+                    : mins === 1    ? "1 min"
+                    : `${mins} min`;
+        const destInfo = e.dest ? stops["MTR_" + e.dest] : null;
+        const dest = destInfo ? (destInfo.nt || destInfo.ne) : (e.dest || "");
+        const plat = e.plat ? `<small>P${escapeHtml(e.plat)}</small>` : "";
+        return `<span class="yuu-mtr-eta-pill">${escapeHtml(label)} ${plat}<small>→ ${escapeHtml(dest)}</small></span>`;
+      };
+      const ups = (v.UP || []).filter((e) => e.valid !== "N").slice(0, 4);
+      const dns = (v.DOWN || []).filter((e) => e.valid !== "N").slice(0, 4);
+      let html = "";
+      if (ups.length) {
+        html += `<div class="yuu-mtr-eta-row"><span class="yuu-mtr-eta-label">↑ UP</span>${ups.map(fmt).join("")}</div>`;
+      }
+      if (dns.length) {
+        html += `<div class="yuu-mtr-eta-row"><span class="yuu-mtr-eta-label">↓ DOWN</span>${dns.map(fmt).join("")}</div>`;
+      }
+      if (!html) html = `<div class="yuu-mtr-eta-empty">No upcoming trains</div>`;
+      eta.innerHTML = html;
+    } catch (err) {
+      eta.innerHTML = `<div class="yuu-mtr-eta-empty">Could not fetch ETA — try again.</div>`;
     }
   }
 
