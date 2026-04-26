@@ -237,13 +237,18 @@
         fetchJson(`${DATA_BASE}/routes.json`),
         fetchJson(`${DATA_BASE}/meta.json`),
       ]);
-      // Whether routes are joint (e.g. KMB + Citybus 101) is determined
-      // by the pipeline using stop-set overlap — too data-heavy to replicate
-      // client-side. If the bundle already has `partners` fields, they're
-      // respected; otherwise every route stays solo.
       state.routes = routes;
       state.meta = meta;
       renderMeta();
+      // Warm caches so the MTR map and Plan map don't pay first-open
+      // latency. Both run as fire-and-forget background fetches.
+      warmMtrGeometries();
+      ensureStopRoutesLoaded().catch(() => {});
+      ensureStopsLoaded().catch(() => {});
+      // Initialise the Plan-tab map immediately (it's hidden under the
+      // Bus tab by default, but tiles load anyway and render on first
+      // tab switch via invalidateSize).
+      try { ensurePlanMapRendered(); } catch (e) { /* leaflet init quirk; retried later */ }
     } catch (err) {
       console.error("Failed to load bundles", err);
       $("yuu-meta").textContent =
@@ -313,7 +318,9 @@
       if (route)   route.hidden   = true;
       if (mtrView) mtrView.hidden = true;
       if (planSec) planSec.hidden = false;
-      if (map)     map.hidden     = false;
+      if (map)     map.hidden     = true;
+      ensurePlanMapRendered();
+      setTimeout(() => planMap?.invalidateSize(), 0);
       $("yuu-plan-from")?.focus();
       return;
     }
@@ -369,13 +376,191 @@
   let mtrEtaTimer = null;
   let activeMtrStationEl = null;
   let mtrMap = null;
+  let mtrPolylineLayer = null;     // Leaflet layer group for the chosen
+                                    // journey overlay (cleared between plans).
   const mtrStationMarkers = new Map(); // mtr_code → Leaflet marker
   const mtrStationLines   = new Map(); // mtr_code → Set<line_id>
+  const mtrStationsByLine = new Map(); // line_id → ordered array of codes
+  const mtrJourney = { from: null, to: null }; // each is {code, name}
+  const HK_BOUNDS = [[22.13, 113.78], [22.62, 114.50]];
 
   function initMtrToggle() {
     document.querySelectorAll(".yuu-mtr-toggle-btn").forEach((btn) => {
       btn.addEventListener("click", () => switchMtrMode(btn.dataset.mtrMode));
     });
+    $("yuu-mtr-clear")?.addEventListener("click", () => {
+      mtrJourney.from = null;
+      mtrJourney.to = null;
+      renderMtrJourneyForm();
+      $("yuu-mtr-journey-result").innerHTML = "";
+      if (mtrPolylineLayer) {
+        mtrPolylineLayer.clearLayers();
+      }
+    });
+    $("yuu-mtr-swap")?.addEventListener("click", () => {
+      const t = mtrJourney.from; mtrJourney.from = mtrJourney.to; mtrJourney.to = t;
+      renderMtrJourneyForm();
+      maybePlanMtrJourney();
+    });
+  }
+
+  function renderMtrJourneyForm() {
+    const journeyHost = $("yuu-mtr-journey");
+    const fromVal = $("yuu-mtr-from-val");
+    const toVal   = $("yuu-mtr-to-val");
+    if (!journeyHost) return;
+    const showForm = !!(mtrJourney.from || mtrJourney.to);
+    journeyHost.hidden = !showForm;
+    if (fromVal) fromVal.textContent = mtrJourney.from ? `${mtrJourney.from.name} (${mtrJourney.from.code})` : "—";
+    if (toVal)   toVal.textContent   = mtrJourney.to   ? `${mtrJourney.to.name} (${mtrJourney.to.code})`   : "—";
+  }
+
+  function maybePlanMtrJourney() {
+    if (!mtrJourney.from || !mtrJourney.to) return;
+    if (mtrJourney.from.code === mtrJourney.to.code) {
+      $("yuu-mtr-journey-result").innerHTML =
+        `<div class="yuu-plan-empty">From and to are the same station.</div>`;
+      return;
+    }
+    const path = mtrShortestPath(mtrJourney.from.code, mtrJourney.to.code);
+    if (!path) {
+      $("yuu-mtr-journey-result").innerHTML =
+        `<div class="yuu-plan-empty">No route found between these stations.</div>`;
+      return;
+    }
+    renderMtrJourneyResult(path);
+    drawMtrJourneyOnMap(path);
+  }
+
+  // Build a station-line graph and Dijkstra over it. Nodes are
+  // "CODE|LINE"; edges are consecutive stations on the same line (cost 1
+  // station-hop ≈ 2 min) and same-station interchanges (cost 4 min).
+  function mtrShortestPath(fromCode, toCode) {
+    if (!mtrStationsByLine.size || !mtrStationLines.size) return null;
+    const HOP = 2;       // minutes per station hop
+    const TRANSFER = 4;  // minutes per interchange
+
+    // Build adjacency once, lazily.
+    if (!mtrShortestPath._adj) {
+      const adj = new Map();
+      const ensure = (n) => { if (!adj.has(n)) adj.set(n, []); };
+      // Same-line consecutive stations
+      mtrStationsByLine.forEach((codes, line) => {
+        for (let i = 0; i < codes.length - 1; i++) {
+          const a = `${codes[i]}|${line}`;
+          const b = `${codes[i+1]}|${line}`;
+          ensure(a); ensure(b);
+          adj.get(a).push({ n: b, w: HOP });
+          adj.get(b).push({ n: a, w: HOP });
+        }
+      });
+      // Interchanges
+      mtrStationLines.forEach((lineSet, code) => {
+        const lns = [...lineSet];
+        for (let i = 0; i < lns.length; i++)
+          for (let j = i + 1; j < lns.length; j++) {
+            const a = `${code}|${lns[i]}`, b = `${code}|${lns[j]}`;
+            ensure(a); ensure(b);
+            adj.get(a).push({ n: b, w: TRANSFER });
+            adj.get(b).push({ n: a, w: TRANSFER });
+          }
+      });
+      mtrShortestPath._adj = adj;
+    }
+    const adj = mtrShortestPath._adj;
+
+    const startNodes = [...(mtrStationLines.get(fromCode) || [])].map((l) => `${fromCode}|${l}`);
+    const targets   = new Set([...(mtrStationLines.get(toCode) || [])].map((l) => `${toCode}|${l}`));
+    if (!startNodes.length || !targets.size) return null;
+
+    const dist = new Map();
+    const prev = new Map();
+    const queue = [];
+    startNodes.forEach((n) => { dist.set(n, 0); queue.push([0, n]); });
+
+    while (queue.length) {
+      queue.sort((a, b) => a[0] - b[0]);
+      const [d, u] = queue.shift();
+      if (d > (dist.get(u) ?? Infinity)) continue;
+      if (targets.has(u)) {
+        const path = [u];
+        let cur = u;
+        while (prev.has(cur)) { cur = prev.get(cur); path.unshift(cur); }
+        return { path, totalMin: d };
+      }
+      for (const { n: v, w } of adj.get(u) || []) {
+        const newD = d + w;
+        if (newD < (dist.get(v) ?? Infinity)) {
+          dist.set(v, newD);
+          prev.set(v, u);
+          queue.push([newD, v]);
+        }
+      }
+    }
+    return null;
+  }
+
+  function renderMtrJourneyResult(result) {
+    // Group consecutive same-line nodes into legs; an interchange is the
+    // boundary where the line changes between two same-station nodes.
+    const legs = [];
+    let cur = null;
+    for (const node of result.path) {
+      const [code, line] = node.split("|");
+      if (!cur || cur.line !== line) {
+        if (cur) cur.toCode = code; // interchange: stay at same station
+        cur = { line, fromCode: code, toCode: code, hops: 0 };
+        legs.push(cur);
+      } else {
+        cur.toCode = code;
+        cur.hops++;
+      }
+    }
+    // Drop zero-hop trailing leg (artifact of interchange node sharing).
+    while (legs.length > 1 && legs[legs.length - 1].hops === 0) legs.pop();
+
+    const stops = state.stops || {};
+    const stationName = (code) => {
+      const s = stops[`MTR_${code}`];
+      return s ? (s.nt || s.ne) : code;
+    };
+    const totalMin = result.totalMin;
+    const html = `<div class="yuu-mtr-journey-summary">
+        <strong>${Math.round(totalMin)} min</strong>
+        <span> · ${legs.length} ${legs.length === 1 ? "leg" : "legs"}</span>
+      </div>
+      <ol class="yuu-mtr-legs">
+        ${legs.map((leg) => {
+          const c = MTR_LINE_COLOR[leg.line] || "#1d3557";
+          return `<li class="yuu-mtr-leg" style="--c:${c}">
+            <span class="yuu-mtr-leg-line" style="background:${c}">${escapeHtml(leg.line)}</span>
+            <div>
+              <div class="yuu-mtr-leg-label">${escapeHtml(stationName(leg.fromCode))} → ${escapeHtml(stationName(leg.toCode))}</div>
+              <div class="yuu-mtr-leg-hops">${leg.hops} station${leg.hops === 1 ? "" : "s"}</div>
+            </div>
+          </li>`;
+        }).join("")}
+      </ol>`;
+    $("yuu-mtr-journey-result").innerHTML = html;
+  }
+
+  function drawMtrJourneyOnMap(result) {
+    if (!mtrMap) return;
+    if (!mtrPolylineLayer) {
+      mtrPolylineLayer = L.layerGroup().addTo(mtrMap);
+    } else {
+      mtrPolylineLayer.clearLayers();
+    }
+    const stops = state.stops || {};
+    const points = result.path
+      .map((n) => stops[`MTR_${n.split("|")[0]}`])
+      .filter(Boolean)
+      .map((s) => [s.la, s.lg]);
+    if (points.length > 1) {
+      L.polyline(points, { color: "#0f172a", weight: 6, opacity: 0.6, dashArray: "4 6" })
+        .addTo(mtrPolylineLayer);
+      mtrMap.fitBounds(points, { padding: [40, 40], maxZoom: 14 });
+    }
   }
 
   function switchMtrMode(mode) {
@@ -386,51 +571,63 @@
     $("yuu-mtr-lines").hidden        = showMap;
     $("yuu-mtr-line-detail").hidden  = showMap;
     $("yuu-mtr-map").hidden          = !showMap;
+    $("yuu-mtr-journey").hidden      = !(showMap && (mtrJourney.from || mtrJourney.to));
     if (showMap) {
       stopMtrEtaPolling();
       ensureMtrMapRendered();
+      renderMtrJourneyForm();
     }
   }
 
   async function ensureMtrMapRendered() {
     if (mtrMap) {
-      // Re-render tile grid in case the container was hidden when we made it.
       setTimeout(() => mtrMap.invalidateSize(), 0);
       return;
     }
-    mtrMap = L.map("yuu-mtr-map", { zoomControl: true })
-      .setView([22.34, 114.17], 11);
+    mtrMap = L.map("yuu-mtr-map", {
+      zoomControl: true,
+      maxBounds: HK_BOUNDS,
+      maxBoundsViscosity: 0.8,
+      minZoom: 10,
+    }).fitBounds(HK_BOUNDS);
     L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
       attribution: '&copy; OSM &copy; CARTO',
       subdomains: "abcd",
       maxZoom: 19,
+      minZoom: 10,
+      bounds: HK_BOUNDS,
     }).addTo(mtrMap);
 
-    // Lazy-load stops bundle so we can resolve station coords + names.
     const stops = await ensureStopsLoaded();
     const lines = state.routes.filter((r) => r.co === "MTR");
 
-    for (const line of lines) {
-      const c = MTR_LINE_COLOR[line.id] || "#1d3557";
-      try {
-        const geo = await fetchJson(`${DATA_BASE}/geometry/${line.rk}_1.json`);
-        const coords = (geo.coords || []).filter(
-          (p) => Array.isArray(p) && typeof p[0] === "number"
-        );
-        if (coords.length > 1) {
-          L.polyline(coords, { color: c, weight: 4, opacity: 0.85 }).addTo(mtrMap);
-        }
-        for (const s of (geo.stops || [])) {
-          const code = s.mtr_code;
-          if (!code) continue;
-          if (!mtrStationLines.has(code)) mtrStationLines.set(code, new Set());
-          mtrStationLines.get(code).add(line.id);
-        }
-      } catch (e) { /* missing geom */ }
-    }
+    // Parallel fetch of every line's geometry. Sequential fetching took
+    // ~3 s on slow connections; Promise.all completes in one round-trip.
+    const geos = await Promise.all(lines.map((line) =>
+      fetchJson(`${DATA_BASE}/geometry/${line.rk}_1.json`).catch(() => null)
+    ));
 
-    // One marker per unique station (interchange stations get a bigger
-    // white-filled circle outlined in their primary line's colour).
+    geos.forEach((geo, i) => {
+      const line = lines[i];
+      if (!geo) return;
+      const c = MTR_LINE_COLOR[line.id] || "#1d3557";
+      const coords = (geo.coords || []).filter(
+        (p) => Array.isArray(p) && typeof p[0] === "number"
+      );
+      if (coords.length > 1) {
+        L.polyline(coords, { color: c, weight: 4, opacity: 0.85 }).addTo(mtrMap);
+      }
+      const ordered = [];
+      for (const s of (geo.stops || [])) {
+        const code = s.mtr_code;
+        if (!code) continue;
+        if (!mtrStationLines.has(code)) mtrStationLines.set(code, new Set());
+        mtrStationLines.get(code).add(line.id);
+        ordered.push(code);
+      }
+      mtrStationsByLine.set(line.id, ordered);
+    });
+
     mtrStationLines.forEach((lineSet, code) => {
       const stop = stops[`MTR_${code}`];
       if (!stop) return;
@@ -447,6 +644,16 @@
       marker.bindTooltip(`${stop.nt || stop.ne} (${code})`);
       marker.on("click", () => openMtrStationPopup(code, stop, lns));
       mtrStationMarkers.set(code, marker);
+    });
+  }
+
+  // Pre-fetch all 10 line geometries on page load so the first MTR map
+  // open is instant. Fire-and-forget; subsequent ensureMtrMapRendered
+  // reuses the warmed HTTP cache.
+  function warmMtrGeometries() {
+    const lines = state.routes.filter((r) => r.co === "MTR");
+    lines.forEach((line) => {
+      fetch(`${DATA_BASE}/geometry/${line.rk}_1.json`).catch(() => {});
     });
   }
 
@@ -487,12 +694,12 @@
       root.querySelectorAll(".yuu-mtr-popup-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
           const which = btn.dataset.action; // "from" | "to"
-          const inp = $(`yuu-plan-${which}`);
-          if (!inp) return;
-          inp.value = btn.dataset.display;
-          inp.dataset.stopId = btn.dataset.stopId;
-          // Switch to plan tab so user sees the input filled in.
-          activateTab("plan");
+          // Set the MTR view's OWN journey endpoints (separate from the
+          // global Plan trip tab). Then plan and render the rail journey.
+          mtrJourney[which] = { code: code, name: tcName };
+          renderMtrJourneyForm();
+          maybePlanMtrJourney();
+          marker.closePopup();
         });
       });
     }, 50);
@@ -695,6 +902,89 @@
       if (input.value.trim() === "") showNearbySuggestions();
       else runSearch(input.value);
     });
+  }
+
+  // ============================================================ Plan map
+
+  let planMap = null;
+  let planMapLayer = null;
+
+  function ensurePlanMapRendered() {
+    if (planMap) {
+      setTimeout(() => planMap.invalidateSize(), 0);
+      return;
+    }
+    if (!document.getElementById("yuu-plan-map")) return;
+    planMap = L.map("yuu-plan-map", {
+      zoomControl: true,
+      maxBounds: HK_BOUNDS,
+      maxBoundsViscosity: 0.8,
+      minZoom: 10,
+    }).fitBounds(HK_BOUNDS);
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+      attribution: '&copy; OSM &copy; CARTO',
+      subdomains: "abcd",
+      maxZoom: 19,
+      bounds: HK_BOUNDS,
+    }).addTo(planMap);
+  }
+
+  // Drop origin/destination pins + selected route polyline on the plan map.
+  function drawPlanOnMap(option, fromEnd, toEnd) {
+    if (!planMap) return;
+    if (!planMapLayer) planMapLayer = L.layerGroup().addTo(planMap);
+    planMapLayer.clearLayers();
+
+    const stops = state.stops || {};
+    const fromS = (fromEnd.kind === "stop") ? stops[fromEnd.stopId]
+                  : { la: fromEnd.lat, lg: fromEnd.lng };
+    const toS   = (toEnd.kind === "stop")   ? stops[toEnd.stopId]
+                  : { la: toEnd.lat,   lg: toEnd.lng   };
+
+    const points = [];
+    if (fromS) {
+      L.marker([fromS.la, fromS.lg], { title: "Origin" })
+        .bindTooltip(fromEnd.label || "From", { permanent: false })
+        .addTo(planMapLayer);
+      points.push([fromS.la, fromS.lg]);
+    }
+    if (toS) {
+      L.marker([toS.la, toS.lg], { title: "Destination" })
+        .bindTooltip(toEnd.label || "To", { permanent: false })
+        .addTo(planMapLayer);
+      points.push([toS.la, toS.lg]);
+    }
+
+    // Try to draw the selected route's polyline if available.
+    const drawSegment = async (rk, dir, fromId, toId) => {
+      try {
+        const geo = await fetchJson(`${DATA_BASE}/geometry/${rk}_${dir}.json`);
+        const segStops = geo.stops || [];
+        const fIdx = segStops.findIndex((s) => s.stop_id === fromId);
+        const tIdx = segStops.findIndex((s) => s.stop_id === toId);
+        if (fIdx < 0 || tIdx <= fIdx) return;
+        // Use only the segment points falling between board and alight
+        // stops if we have stop coords, otherwise use the whole polyline.
+        const allCoords = geo.coords || [];
+        const route = state.routes.find((r) => r.rk === rk);
+        const c = routeColor(route);
+        if (allCoords.length > 1) {
+          L.polyline(allCoords, { color: c, weight: 5, opacity: 0.85 }).addTo(planMapLayer);
+          allCoords.forEach((p) => points.push(p));
+        }
+      } catch {}
+    };
+    if (option) {
+      if (option.type === "interchange") {
+        drawSegment(option.legA.rk, option.legA.dir, option.legA.boardId, option.legA.alightId);
+        drawSegment(option.legB.rk, option.legB.dir, option.legB.boardId, option.legB.alightId);
+      } else {
+        drawSegment(option.route.rk, option.dir, option.board.id, option.alight.id);
+      }
+    }
+    if (points.length >= 2) {
+      planMap.fitBounds(points, { padding: [40, 40], maxZoom: 15 });
+    }
   }
 
   // ============================================================ Trip Planner
@@ -936,19 +1226,157 @@
     const direct = [...byRoute.values()].sort((a, b) =>
       a.totalMin - b.totalMin || compareRouteIds(a.route.id, b.route.id)
     );
-    return { direct };
+
+    // 1-interchange: route_A from origin-area → shared stop → route_B to
+    // dest-area. Only attempted when no direct option exists or when the
+    // best direct is slow (so cheap interchanges can outperform).
+    let interchange = [];
+    if (!direct.length || direct[0].totalMin > 25) {
+      interchange = await planOneInterchange(fromStops, toStops, sr);
+    }
+
+    return { direct, interchange };
+  }
+
+  async function planOneInterchange(fromStops, toStops, sr) {
+    const out = [];
+    // For each origin-area stop, the routes that serve it
+    const fromRouteCands = new Map();
+    for (const oStop of fromStops) {
+      for (const rk of (sr[oStop.id] || [])) {
+        if (!fromRouteCands.has(rk)) fromRouteCands.set(rk, []);
+        fromRouteCands.get(rk).push(oStop);
+      }
+    }
+    const toRouteCands = new Map();
+    for (const dStop of toStops) {
+      for (const rk of (sr[dStop.id] || [])) {
+        if (!toRouteCands.has(rk)) toRouteCands.set(rk, []);
+        toRouteCands.get(rk).push(dStop);
+      }
+    }
+
+    // Cap how many candidate first-leg routes we explore so the
+    // cross-product stays manageable.
+    const fromKeys = [...fromRouteCands.keys()].slice(0, 8);
+    const toKeys   = new Set(toRouteCands.keys());
+
+    for (const rkA of fromKeys) {
+      const routeA = state.routes.find((r) => r.rk === rkA);
+      if (!routeA) continue;
+      for (const dirA of (routeA.dirs && routeA.dirs.length ? routeA.dirs : [1])) {
+        let geoA;
+        try { geoA = await fetchJson(`${DATA_BASE}/geometry/${rkA}_${dirA}.json`); }
+        catch { continue; }
+        const aStops = geoA.stops || [];
+        // Build a fast lookup: stop_id → index on route A
+        const aIdx = new Map();
+        aStops.forEach((s, i) => aIdx.set(s.stop_id, i));
+
+        for (const oStop of fromRouteCands.get(rkA) || []) {
+          const oIdx = aIdx.get(oStop.id);
+          if (oIdx == null) continue;
+          // For each subsequent stop on A (after oIdx), check whether that
+          // stop is served by any route that also reaches dest area.
+          for (let j = oIdx + 1; j < aStops.length; j++) {
+            const interStopId = aStops[j].stop_id;
+            const interRoutes = sr[interStopId] || [];
+            for (const rkB of interRoutes) {
+              if (rkB === rkA) continue;
+              if (!toKeys.has(rkB)) continue;
+              const routeB = state.routes.find((r) => r.rk === rkB);
+              if (!routeB) continue;
+              for (const dirB of (routeB.dirs && routeB.dirs.length ? routeB.dirs : [1])) {
+                let geoB;
+                try { geoB = await fetchJson(`${DATA_BASE}/geometry/${rkB}_${dirB}.json`); }
+                catch { continue; }
+                const bStops = geoB.stops || [];
+                const bIdx = bStops.findIndex((s) => s.stop_id === interStopId);
+                if (bIdx < 0) continue;
+                for (const dStop of toRouteCands.get(rkB) || []) {
+                  const tIdx = bStops.findIndex((s) => s.stop_id === dStop.id);
+                  if (tIdx <= bIdx) continue;
+                  const hopsA = j - oIdx;
+                  const hopsB = tIdx - bIdx;
+                  const transitMin = (routeA.co === "MTR" ? 2 : 1.5) * hopsA
+                                   + (routeB.co === "MTR" ? 2 : 1.5) * hopsB
+                                   + 4;  // transfer penalty
+                  const walkMin = (oStop.distance + dStop.distance) / 80;
+                  const total = walkMin + transitMin;
+                  out.push({
+                    type: "interchange",
+                    totalMin: total,
+                    walkMin,
+                    legA: {
+                      route: routeA, rk: rkA, dir: dirA,
+                      boardId: oStop.id, alightId: interStopId,
+                      boardName: aStops[oIdx].stop_name_tc || aStops[oIdx].stop_name,
+                      alightName: aStops[j].stop_name_tc || aStops[j].stop_name,
+                      hops: hopsA,
+                    },
+                    legB: {
+                      route: routeB, rk: rkB, dir: dirB,
+                      boardId: interStopId, alightId: dStop.id,
+                      boardName: bStops[bIdx].stop_name_tc || bStops[bIdx].stop_name,
+                      alightName: bStops[tIdx].stop_name_tc || bStops[tIdx].stop_name,
+                      hops: hopsB,
+                    },
+                    board:  { id: oStop.id, distance: oStop.distance },
+                    alight: { id: dStop.id, distance: dStop.distance },
+                  });
+                  // Cap results per (rkA, rkB) at 1 to avoid cross-product
+                  // explosion.
+                  break;
+                }
+                break;
+              }
+            }
+            // Cap interchange depth per origin-leg.
+            if (out.length > 30) break;
+          }
+        }
+      }
+      if (out.length > 30) break;
+    }
+    out.sort((a, b) => a.totalMin - b.totalMin);
+    return out.slice(0, 6);
   }
 
   function renderPlanResults(trips, fromEnd, toEnd) {
     const el = $("yuu-plan-results");
-    if (!trips.direct.length) {
+    const direct = trips.direct || [];
+    const inter  = trips.interchange || [];
+    if (!direct.length && !inter.length) {
       el.innerHTML =
-        `<div class="yuu-plan-empty">No direct route found between these endpoints.<br>` +
-        `<small>Interchange routing (one transfer) is the next planned milestone.</small></div>`;
+        `<div class="yuu-plan-empty">No route found between these endpoints.</div>`;
       return;
     }
-    const summary = `<div class="yuu-plan-section-title">${trips.direct.length} option${trips.direct.length === 1 ? "" : "s"} · sorted by total time</div>`;
-    el.innerHTML = summary + trips.direct.slice(0, 8).map((t) => {
+
+    const interHtml = inter.map((t) => {
+      const a = t.legA, b = t.legB;
+      const ca = routeColor(a.route), cb = routeColor(b.route);
+      return `<div class="yuu-plan-card yuu-plan-card-inter">
+        <div class="yuu-plan-card-head" style="--card-color:${ca}">
+          <span class="yuu-plan-card-stack">
+            <span class="yuu-badge ${a.route.co}" style="background:${ca};color:#fff">${escapeHtml(a.route.id)}</span>
+            <span class="yuu-plan-card-arrow">→</span>
+            <span class="yuu-badge ${b.route.co}" style="background:${cb};color:#fff">${escapeHtml(b.route.id)}</span>
+          </span>
+          <div class="yuu-plan-card-meta">
+            <span class="yuu-plan-card-co">1 transfer</span>
+            <span class="yuu-plan-card-direction">→ ${escapeHtml(displayEn(b.alightName || ""))}</span>
+          </div>
+          <span class="yuu-plan-card-hops">${Math.round(t.totalMin)} min</span>
+        </div>
+        <div class="yuu-plan-card-body yuu-plan-card-legs">
+          <div>① ${escapeHtml(a.route.id)} · ${escapeHtml(a.boardName)} → ${escapeHtml(a.alightName)} (${a.hops})</div>
+          <div>② ${escapeHtml(b.route.id)} · ${escapeHtml(b.boardName)} → ${escapeHtml(b.alightName)} (${b.hops})</div>
+        </div>
+      </div>`;
+    }).join("");
+
+    const summary = `<div class="yuu-plan-section-title">${direct.length + inter.length} option${(direct.length + inter.length) === 1 ? "" : "s"} · sorted by total time</div>`;
+    el.innerHTML = summary + direct.slice(0, 6).map((t) => {
       const rc = routeColor(t.route);
       const opName = COMPANY_LABEL[t.route.co] || t.route.co;
       const dirLabel = (t.dir === 1 ? t.route.de : t.route.oe) || "";
@@ -973,7 +1401,8 @@
         </div>
         ${walkLine}
       </div>`;
-    }).join("");
+    }).join("") + interHtml;
+
     el.querySelectorAll(".yuu-plan-open").forEach((btn) => {
       btn.addEventListener("click", () => {
         const route = state.routes.find((r) => r.rk === btn.dataset.rk);
@@ -983,6 +1412,11 @@
         selectRoute(route);
       });
     });
+
+    // Draw the top option (cheapest) on the Plan map.
+    ensurePlanMapRendered();
+    const top = direct[0] || inter[0];
+    if (top) drawPlanOnMap(top, fromEnd, toEnd);
   }
 
   function passesModeFilter(route) {

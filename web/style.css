@@ -884,6 +884,130 @@
   z-index: 0;
 }
 
+/* MTR-only journey planner panel that appears beneath the map when the
+   user picks From / To from a station popup. */
+.yuu-mtr-journey {
+  background: var(--yuu-surface);
+  border: 1px solid var(--yuu-border);
+  border-radius: var(--yuu-radius);
+  padding: 12px;
+  margin-bottom: 12px;
+  box-shadow: var(--yuu-shadow-sm);
+}
+.yuu-mtr-journey-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.yuu-mtr-journey-end {
+  flex: 1;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  background: var(--yuu-bg);
+  padding: 6px 10px;
+  border-radius: var(--yuu-radius);
+  border: 1px solid var(--yuu-border);
+}
+.yuu-mtr-journey-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--yuu-muted);
+}
+.yuu-mtr-journey-value {
+  font-size: 0.95rem;
+  font-weight: 500;
+  margin-top: 2px;
+}
+#yuu-mtr-swap, #yuu-mtr-clear {
+  font-family: inherit;
+  border: 1px solid var(--yuu-border);
+  background: var(--yuu-surface);
+  color: var(--yuu-text);
+  padding: 6px 12px;
+  border-radius: var(--yuu-radius);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+#yuu-mtr-swap:hover, #yuu-mtr-clear:hover {
+  border-color: var(--yuu-accent);
+}
+
+.yuu-mtr-journey-result { margin-top: 10px; }
+.yuu-mtr-journey-summary {
+  font-size: 0.95rem;
+  margin-bottom: 8px;
+  color: var(--yuu-muted);
+}
+.yuu-mtr-journey-summary strong {
+  color: var(--yuu-text);
+  font-size: 1.1rem;
+}
+.yuu-mtr-legs {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.yuu-mtr-leg {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 8px;
+  border-left: 4px solid var(--c, var(--yuu-accent));
+}
+.yuu-mtr-leg-line {
+  font-weight: 700;
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+.yuu-mtr-leg-label {
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+.yuu-mtr-leg-hops {
+  font-size: 0.78rem;
+  color: var(--yuu-muted);
+}
+
+/* Plan-trip preloaded map */
+.yuu-plan-map {
+  height: 40svh;
+  min-height: 240px;
+  max-height: 480px;
+  border-radius: var(--yuu-radius);
+  border: 1px solid var(--yuu-border);
+  margin: 0 0 12px;
+  z-index: 0;
+}
+
+.yuu-plan-card-stack {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.yuu-plan-card-arrow {
+  color: var(--yuu-muted);
+  font-size: 0.85rem;
+}
+.yuu-plan-card-legs {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  font-size: 0.85rem;
+  color: var(--yuu-muted);
+}
+
 /* Compact rich popup that lives on a station marker in the MTR map */
 .yuu-popup-wrap .leaflet-popup-content { margin: 12px; min-width: 240px; }
 .yuu-mtr-popup strong {

@@ -70,6 +70,21 @@
       <div id="yuu-mtr-lines" class="yuu-mtr-lines" role="tablist"></div>
       <div id="yuu-mtr-line-detail" class="yuu-mtr-line-detail"></div>
       <div id="yuu-mtr-map" class="yuu-mtr-map" hidden></div>
+      <div id="yuu-mtr-journey" class="yuu-mtr-journey" hidden>
+        <div class="yuu-mtr-journey-form">
+          <div class="yuu-mtr-journey-end" data-which="from">
+            <span class="yuu-mtr-journey-label">From</span>
+            <span class="yuu-mtr-journey-value" id="yuu-mtr-from-val">—</span>
+          </div>
+          <div class="yuu-mtr-journey-end" data-which="to">
+            <span class="yuu-mtr-journey-label">To</span>
+            <span class="yuu-mtr-journey-value" id="yuu-mtr-to-val">—</span>
+          </div>
+          <button type="button" id="yuu-mtr-swap" title="Swap">⇆</button>
+          <button type="button" id="yuu-mtr-clear">Clear</button>
+        </div>
+        <div id="yuu-mtr-journey-result" class="yuu-mtr-journey-result"></div>
+      </div>
     </section>
 
     <section id="yuu-plan" class="yuu-plan" hidden>
@@ -95,6 +110,7 @@
           <button type="button" id="yuu-plan-go" class="yuu-plan-go">Plan</button>
         </div>
       </div>
+      <div id="yuu-plan-map" class="yuu-plan-map"></div>
       <div id="yuu-plan-results" class="yuu-plan-results"></div>
     </section>
 
