@@ -4,7 +4,12 @@
 (() => {
   "use strict";
 
-  const DATA_BASE = "./data";
+  // Page can override where data bundles live by setting window.YUU_DATA_BASE
+  // before app.js loads — useful when the same widget is embedded at a path
+  // that isn't its data root (e.g. /projects/yuutraffic/ pointing to /yuutraffic/data/).
+  const DATA_BASE = (typeof window !== "undefined" && window.YUU_DATA_BASE)
+    ? String(window.YUU_DATA_BASE).replace(/\/$/, "")
+    : "./data";
   const POLL_MS = 20_000;
   const MAX_BACKOFF_MS = 120_000;
   const IDLE_STOP_MS = 10 * 60_000;
