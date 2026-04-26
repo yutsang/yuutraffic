@@ -35,6 +35,14 @@
     RMB: "Red Minibus",
   };
 
+  // Mode → set of company codes for the search filter dropdown.
+  const MODE_TO_COMPANIES = {
+    bus:     new Set(["KMB", "CTB"]),
+    minibus: new Set(["GMB", "RMB"]),
+    mtrb:    new Set(["MTRB"]),
+    mtr:     new Set(["MTR"]), // reserved for the future MTR-rail rollout
+  };
+
   // Heuristic labels derived from the HK route-number suffix/prefix. Used to
   // surface schedule hints like "Peak only" / "Holiday only" without needing
   // a full timetable data source.
@@ -125,6 +133,21 @@
     "HKCEC", "IFC", "YMCA", "HSBC", "ICBC", "UK", "US",
   ]);
 
+  // Stops typically come back from KMB as "Laguna City Bus Terminus (LT970)"
+  // (English) and "麗港城總站 (LT970)" (Chinese). The code at the end is
+  // duplicated; strip it from the English when both halves carry it.
+  function splitStopLabels(stop) {
+    const tcRaw = stop.stop_name_tc || "";
+    let en = displayEn(stop.stop_name || stop.stop_id || "");
+    const codeRe = /\s*\(([A-Z0-9-]{3,})\)\s*$/i;
+    const tcCode = tcRaw.match(codeRe);
+    const enCode = en.match(codeRe);
+    if (tcCode && enCode && tcCode[1].toUpperCase() === enCode[1].toUpperCase()) {
+      en = en.replace(codeRe, "").trim();
+    }
+    return { tc: tcRaw, en };
+  }
+
   function displayEn(s) {
     if (!s) return s;
     // If already mixed case, leave as-is
@@ -193,6 +216,7 @@
     initVisibility();
     initRefreshButton();
     initViewportResize();
+    initModeFilter();
     $("yuu-meta").textContent = "Loading routes…";
 
     try {
@@ -240,6 +264,32 @@
       (err) => console.info("Location unavailable:", err.message),
       { enableHighAccuracy: false, timeout: 12_000, maximumAge: 5 * 60_000 }
     );
+  }
+
+  function initModeFilter() {
+    const sel = $("yuu-mode-select");
+    if (!sel) return;
+    sel.addEventListener("change", () => {
+      bumpActivity();
+      const input = $("yuu-search-input");
+      if (input.value.trim() === "") showNearbySuggestions();
+      else runSearch(input.value);
+    });
+  }
+
+  function selectedMode() {
+    const sel = $("yuu-mode-select");
+    return sel ? sel.value : "";
+  }
+
+  function passesModeFilter(route) {
+    const mode = selectedMode();
+    if (!mode) return true;
+    const wanted = MODE_TO_COMPANIES[mode];
+    if (!wanted) return true;
+    if (wanted.has(route.co)) return true;
+    if (route.partners) return route.partners.some((p) => wanted.has(p.co));
+    return false;
   }
 
   function applyEmbedMode() {
@@ -316,6 +366,7 @@
     const prefix = [];
     const contains = [];
     for (const r of state.routes) {
+      if (!passesModeFilter(r)) continue;
       const id = (r.id || "").toUpperCase();
       if (id.startsWith(query)) { prefix.push(r); continue; }
       if (id.includes(query) ||
@@ -432,12 +483,17 @@
 
   function showNearbySuggestions() {
     const n = state.nearbyRoutes;
-    if (!n || n.routes.length === 0) {
+    if (!n) {
+      $("yuu-search-results").hidden = true;
+      return;
+    }
+    const filtered = n.routes.filter(passesModeFilter);
+    if (filtered.length === 0) {
       $("yuu-search-results").hidden = true;
       return;
     }
     renderSearchResults(
-      n.routes,
+      filtered,
       `Near you (${n.radiusM} m · ${n.stopCount} stops)`
     );
   }
@@ -482,53 +538,71 @@
     badge.textContent = route.id;
     badge.className = `yuu-badge ${route.co}`;
 
-    const operatorLabel = route.partners && route.partners.length > 1
-      ? route.partners.map((p) => COMPANY_LABEL[p.co] || p.co).join(" + ")
-      : (COMPANY_LABEL[route.co] || route.co);
-    const badges = scheduleBadges(route.id).map((b) =>
-      `<span class="yuu-schedule-chip">${escapeHtml(b.en)} · ${escapeHtml(b.tc)}</span>`
-    ).join("");
-    const allApprox = (route.partners && route.partners.length > 0
-                        ? route.partners
-                        : [{ co: route.co }])
-                      .every((p) => APPROXIMATE_OPERATORS.has(p.co));
-    const approxChip = allApprox
-      ? `<span class="yuu-schedule-chip yuu-approx-chip" title="Coordinates are best-effort">Approximate route · 路線僅供參考</span>`
-      : "";
-    $("yuu-company-label").innerHTML =
-      `<span class="yuu-op-text">${escapeHtml(operatorLabel)}</span>${badges}${approxChip}`;
-
-    const dirs = route.dirs && route.dirs.length ? route.dirs : [1];
-    document.querySelectorAll(".yuu-dir-btn").forEach((btn) => {
-      const d = Number(btn.dataset.dir);
-      btn.style.display = dirs.includes(d) ? "" : "none";
-      btn.classList.toggle("active", d === state.selectedDirection);
-    });
-
+    renderRouteChips(route);
     updateRouteTitle();
     await loadDirection({ autoFlip: true });
   }
 
-  function initDirectionToggle() {
-    document.querySelectorAll(".yuu-dir-btn").forEach((btn) => {
+  // The chip toolbar shown in the route header: operator name, schedule
+  // hint chips, an optional "approximate route" chip, and the direction
+  // toggles — all inline so they share a row instead of stacking.
+  function renderRouteChips(route) {
+    const host = $("yuu-route-chips");
+    if (!host) return;
+
+    const opNames = (route.partners && route.partners.length > 1)
+      ? route.partners.map((p) => COMPANY_LABEL[p.co] || p.co).join(" + ")
+      : (COMPANY_LABEL[route.co] || route.co);
+
+    const badges = scheduleBadges(route.id);
+    const allApprox = (route.partners && route.partners.length > 0
+                        ? route.partners
+                        : [{ co: route.co }])
+                      .every((p) => APPROXIMATE_OPERATORS.has(p.co));
+    const dirs = route.dirs && route.dirs.length ? route.dirs : [1];
+
+    const dirLabel = (d) => {
+      const r = state.selectedRoute;
+      if (!r) return d === 1 ? "Out" : "In";
+      const outName = d === 1 ? r.de : r.oe;
+      const trim = (s) => (s || "").split(/[(]|·|,/)[0].trim().slice(0, 14);
+      return `→ ${trim(outName) || (d === 1 ? "Out" : "In")}`;
+    };
+
+    const parts = [];
+    parts.push(`<span class="yuu-op-text">${escapeHtml(opNames)}</span>`);
+    badges.forEach((b) => {
+      parts.push(`<span class="yuu-schedule-chip">${escapeHtml(b.en)} · ${escapeHtml(b.tc)}</span>`);
+    });
+    if (allApprox) {
+      parts.push(`<span class="yuu-schedule-chip yuu-approx-chip" title="Coordinates are best-effort">Approximate · 路線僅供參考</span>`);
+    }
+    dirs.forEach((d) => {
+      const active = d === state.selectedDirection ? " active" : "";
+      parts.push(
+        `<button type="button" class="yuu-dir-chip${active}" data-dir="${d}">${escapeHtml(dirLabel(d))}</button>`
+      );
+    });
+    host.innerHTML = parts.join("");
+
+    host.querySelectorAll(".yuu-dir-chip").forEach((btn) => {
       btn.addEventListener("click", () => {
         bumpActivity();
         const d = Number(btn.dataset.dir);
-        if (!state.selectedRoute) return;
+        if (!state.selectedRoute || d === state.selectedDirection) return;
         state.selectedDirection = d;
         state.selectedStop = null;
         $("yuu-eta").hidden = true;
         stopEtaPolling();
-        document.querySelectorAll(".yuu-dir-btn").forEach((b) =>
-          b.classList.toggle("active", b === btn)
-        );
+        renderRouteChips(state.selectedRoute); // re-mark active
         updateRouteTitle();
-        // No auto-flip on manual direction change — user just made an
-        // explicit choice.
         loadDirection({ autoFlip: false });
       });
     });
   }
+
+  // Empty stub kept for backward compat (init flow used to call this).
+  function initDirectionToggle() {}
 
   // After a route's geometry is loaded, see whether the user is actually
   // closer to the OTHER direction's origin (= this direction's destination).
@@ -554,9 +628,7 @@
     if (!route.dirs.includes(otherDir)) return false;
 
     state.selectedDirection = otherDir;
-    document.querySelectorAll(".yuu-dir-btn").forEach((btn) =>
-      btn.classList.toggle("active", Number(btn.dataset.dir) === otherDir)
-    );
+    if (state.selectedRoute) renderRouteChips(state.selectedRoute);
     updateRouteTitle();
     await loadDirection({ autoFlip: false });
     return true;
@@ -764,8 +836,11 @@
         radius: 5, fillColor: primaryColor,
         color: "#ffffff", weight: 2, fillOpacity: 1,
       }).addTo(state.map);
-      const tc = s.stop_name_tc ? ` · ${s.stop_name_tc}` : "";
-      marker.bindTooltip(`${s.sequence}. ${displayEn(s.stop_name) || s.stop_id}${tc}`);
+      const labels = splitStopLabels(s);
+      const tip = labels.tc
+        ? `${s.sequence}. ${labels.en} · ${labels.tc}`
+        : `${s.sequence}. ${labels.en}`;
+      marker.bindTooltip(tip);
       marker.on("click", () => selectStop(s));
       state.stopLayers.push(marker);
     });
@@ -787,16 +862,19 @@
       el.innerHTML = '<div class="yuu-search-empty">No stops listed</div>';
       return;
     }
-    el.innerHTML = stops.map((s) => `
-      <div class="yuu-stop-item" data-stop-id="${escapeHtml(s.stop_id)}" data-seq="${s.sequence}">
+    el.innerHTML = stops.map((s) => {
+      const labels = splitStopLabels(s);
+      const tcRow = labels.tc
+        ? `<span class="yuu-stop-name-tc">${escapeHtml(labels.tc)}</span>`
+        : "";
+      return `<div class="yuu-stop-item" data-stop-id="${escapeHtml(s.stop_id)}" data-seq="${s.sequence}">
         <span class="yuu-stop-seq">${s.sequence}</span>
         <div class="yuu-stop-labels">
-          <span class="yuu-stop-name">${escapeHtml(displayEn(s.stop_name) || s.stop_id)}</span>
-          ${s.stop_name_tc
-            ? `<span class="yuu-stop-name-tc">${escapeHtml(s.stop_name_tc)}</span>`
-            : ""}
+          ${tcRow}
+          <span class="yuu-stop-name">${escapeHtml(labels.en)}</span>
         </div>
-      </div>`).join("");
+      </div>`;
+    }).join("");
 
     el.querySelectorAll(".yuu-stop-item").forEach((node) => {
       node.addEventListener("click", () => {
@@ -830,9 +908,12 @@
     );
 
     $("yuu-eta").hidden = false;
-    $("yuu-eta-stop").innerHTML =
-      `${stop.sequence}. ${escapeHtml(displayEn(stop.stop_name) || stop.stop_id)}` +
-      (stop.stop_name_tc ? ` <span class="yuu-eta-stop-tc">${escapeHtml(stop.stop_name_tc)}</span>` : "");
+    {
+      const labels = splitStopLabels(stop);
+      $("yuu-eta-stop").innerHTML =
+        `${stop.sequence}. ${escapeHtml(labels.tc || labels.en)}` +
+        (labels.tc ? ` <span class="yuu-eta-stop-tc">${escapeHtml(labels.en)}</span>` : "");
+    }
     if (!sameStop) {
       $("yuu-eta-list").innerHTML = '<li class="yuu-eta-empty">Loading…</li>';
       $("yuu-eta-fresh").textContent = "";
@@ -845,9 +926,15 @@
         radius: 10, fillColor: color,
         color: "#ffffff", weight: 4, fillOpacity: 1,
       }).addTo(state.map);
-      // No auto-pan here. The route polyline is already framed by fitBounds
-      // when the route loaded; tapping a stop just highlights its marker.
-      // Users can pan the map manually if they want a closer look.
+      const labels = splitStopLabels(stop);
+      state.selectedStopLayer
+        .bindPopup(
+          `<div class="yuu-map-popup"><strong>${escapeHtml(labels.tc || labels.en)}</strong>` +
+          (labels.tc ? `<div class="yuu-map-popup-en">${escapeHtml(labels.en)}</div>` : "") +
+          `<ol class="yuu-map-popup-eta"><li class="yuu-eta-empty">Loading…</li></ol></div>`,
+          { maxWidth: 240, className: "yuu-popup-wrap" }
+        )
+        .openPopup();
     }
 
     startEtaPolling();
@@ -1022,7 +1109,6 @@
       const cls = arriving ? "yuu-arriving" : (e.scheduled ? "yuu-scheduled" : "yuu-live");
       const badge = e.scheduled ? "⏱" : "⚡";
       const kind = e.scheduled ? "Scheduled" : "Live";
-      // Tag each row with the operator when the route is jointly operated.
       const op = (state.selectedRoute.partners && state.selectedRoute.partners.length > 1 && e._co)
         ? `<span class="yuu-eta-op">${escapeHtml(COMPANY_LABEL[e._co] || e._co)}</span>`
         : "";
@@ -1030,6 +1116,31 @@
         <span class="yuu-eta-time ${cls}" title="${kind}">${badge} ${escapeHtml(etaText(e.eta))}</span>
         <span class="yuu-eta-dest">${op}${escapeHtml(displayEn(e.dest) || "")}</span>
       </li>`;
+    }).join("");
+
+    // Mirror the top entries into the map marker's popup so users tapping
+    // a stop on the map see the live ETA right there.
+    updateMarkerPopup(valid);
+  }
+
+  function updateMarkerPopup(etas) {
+    if (!state.selectedStopLayer) return;
+    const popup = state.selectedStopLayer.getPopup();
+    if (!popup) return;
+    const root = popup.getElement();
+    if (!root) return;
+    const ol = root.querySelector(".yuu-map-popup-eta");
+    if (!ol) return;
+    if (!etas || etas.length === 0) {
+      ol.innerHTML = `<li class="yuu-eta-empty">No upcoming buses</li>`;
+      return;
+    }
+    ol.innerHTML = etas.slice(0, 3).map((e) => {
+      const mins = etaMinutes(e.eta);
+      const arriving = mins !== null && mins <= 0;
+      const cls = arriving ? "yuu-arriving" : (e.scheduled ? "yuu-scheduled" : "yuu-live");
+      const badge = e.scheduled ? "⏱" : "⚡";
+      return `<li><span class="yuu-eta-time ${cls}">${badge} ${escapeHtml(etaText(e.eta))}</span></li>`;
     }).join("");
   }
 

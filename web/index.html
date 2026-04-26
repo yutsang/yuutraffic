@@ -28,10 +28,16 @@
     <div class="yuu-search">
       <input type="search"
              id="yuu-search-input"
-             placeholder="Search route, or leave empty for routes near you"
+             placeholder="Search route, or leave empty for nearby"
              autocomplete="off"
              spellcheck="false"
              aria-label="Search route" />
+      <select id="yuu-mode-select" class="yuu-mode-select" aria-label="Filter by mode">
+        <option value="">All</option>
+        <option value="bus">Bus</option>
+        <option value="minibus">Minibus</option>
+        <option value="mtrb">MTR Bus</option>
+      </select>
       <div id="yuu-search-results" class="yuu-search-results" hidden></div>
     </div>
   </header>
@@ -53,14 +59,8 @@
       <div class="yuu-route-header">
         <span id="yuu-route-badge" class="yuu-badge"></span>
         <div class="yuu-route-heading">
-          <div class="yuu-route-title-row">
-            <span id="yuu-company-label" class="yuu-company-label"></span>
-            <div id="yuu-route-title" class="yuu-route-title"></div>
-          </div>
-          <div class="yuu-direction-toggle" role="tablist">
-            <button data-dir="1" class="yuu-dir-btn active" role="tab">Outbound</button>
-            <button data-dir="2" class="yuu-dir-btn" role="tab">Inbound</button>
-          </div>
+          <div id="yuu-route-title" class="yuu-route-title"></div>
+          <div id="yuu-route-chips" class="yuu-route-chips" role="toolbar"></div>
         </div>
       </div>
 
