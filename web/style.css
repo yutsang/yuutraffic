@@ -367,28 +367,32 @@
   margin-top: 6px;
 }
 
-.yuu-dir-chip {
+/* Single swap-direction icon button. The current direction is shown by
+   the route title (X → Y); this button just flips it. */
+.yuu-dir-toggle {
   font-family: inherit;
-  font-size: 0.78rem;
-  font-weight: 600;
-  padding: 3px 10px;
+  font-size: 1rem;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border-radius: 999px;
   border: 1px solid var(--yuu-route-color);
   background: var(--yuu-surface);
   color: var(--yuu-route-color);
   cursor: pointer;
-  white-space: nowrap;
-  letter-spacing: 0.01em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms, transform 120ms;
 }
 
-.yuu-dir-chip.active {
+.yuu-dir-toggle:hover {
   background: var(--yuu-route-color);
   color: var(--yuu-route-text);
 }
 
-.yuu-dir-chip:hover:not(.active) {
-  background: var(--yuu-route-color-soft);
-}
+.yuu-dir-toggle:active { transform: rotate(180deg); }
 
 .yuu-company-label {
   font-size: 0.75rem;
@@ -603,26 +607,27 @@
 }
 
 .yuu-refresh-btn {
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   padding: 0;
-  border: 1px solid var(--yuu-border);
-  background: var(--yuu-surface);
-  color: var(--yuu-text);
+  border: 1px solid var(--yuu-route-color);
+  background: var(--yuu-route-color-soft);
+  color: var(--yuu-route-color);
   border-radius: 50%;
   cursor: pointer;
-  font-size: 0.95rem;
+  font-size: 1.2rem;
   line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 120ms;
+  transition: background 120ms, transform 120ms;
 }
 
 .yuu-refresh-btn:hover {
-  background: var(--yuu-route-color-soft);
-  border-color: var(--yuu-route-color);
+  background: var(--yuu-route-color);
+  color: var(--yuu-route-text);
 }
+.yuu-refresh-btn:active { transform: scale(0.92); }
 
 .yuu-refresh-btn.spinning {
   animation: yuu-spin 600ms linear;
@@ -1172,10 +1177,19 @@
   }
 
   .yuu-route-chips .yuu-schedule-chip,
-  .yuu-route-chips .yuu-op-text,
-  .yuu-route-chips .yuu-dir-chip {
+  .yuu-route-chips .yuu-op-text {
     font-size: 0.66rem;
     padding: 2px 8px;
+  }
+  .yuu-route-chips .yuu-dir-toggle {
+    width: 26px;
+    height: 26px;
+    font-size: 0.95rem;
+  }
+  .yuu-refresh-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 1.3rem;
   }
 
   /* The widget container itself has user-select:none; mobile bump for
