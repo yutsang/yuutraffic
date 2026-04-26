@@ -1136,30 +1136,46 @@
     max-height: 50vh;
   }
 
-  /* -- Map: adaptive height ------------------------------------------ */
-  /* Earlier we made the map sticky as well, but stacking sticky search +
-     sticky map + sticky route header consumed ~60% of the viewport before
-     a single stop was visible. Drop sticky here; only the search header
-     stays pinned. The stop list now starts much higher in the viewport. */
+  /* -- Map: adaptive height + sticky -------------------------------- */
+  /* Map sticks below the (also sticky) search header so it stays visible
+     while the user scrolls the stop list. Tightened to 28 svh + a slim
+     sticky route header so a useful slice of the stop list is visible
+     without scrolling at all. */
   .yuu-map {
-    height: 30svh;
-    min-height: 200px;
-    max-height: 360px;
+    height: 28svh;
+    min-height: 180px;
+    max-height: 320px;
     margin: 0 -10px 0;
     border-radius: 0;
+    position: sticky;
+    top: 56px; /* below sticky search header */
+    z-index: 500;
   }
 
+  /* Route header sticks below the map. Compact: title + chips on two
+     short rows, no extra padding. */
   .yuu-route-header {
+    position: sticky;
+    top: calc(56px + 28svh);
+    z-index: 400;
     margin: 0 -10px;
-    padding: 8px 10px;
+    padding: 6px 10px 8px;
+    background: var(--yuu-bg);
     border-bottom: 1px solid var(--yuu-border);
   }
 
-  .yuu-route-title { font-size: 0.95rem; line-height: 1.25; }
+  .yuu-route-title { font-size: 0.92rem; line-height: 1.2; }
 
   .yuu-route-chips {
-    margin-top: 4px;
+    margin-top: 3px;
     gap: 5px;
+  }
+
+  .yuu-route-chips .yuu-schedule-chip,
+  .yuu-route-chips .yuu-op-text,
+  .yuu-route-chips .yuu-dir-chip {
+    font-size: 0.66rem;
+    padding: 2px 8px;
   }
 
   /* The widget container itself has user-select:none; mobile bump for

@@ -1200,15 +1200,19 @@
         radius: 10, fillColor: color,
         color: "#ffffff", weight: 4, fillOpacity: 1,
       }).addTo(state.map);
-      const labels = splitStopLabels(stop);
-      state.selectedStopLayer
-        .bindPopup(
-          `<div class="yuu-map-popup"><strong>${escapeHtml(labels.tc || labels.en)}</strong>` +
-          (labels.tc ? `<div class="yuu-map-popup-en">${escapeHtml(labels.en)}</div>` : "") +
-          `<ol class="yuu-map-popup-eta"><li class="yuu-eta-empty">Loading…</li></ol></div>`,
-          { maxWidth: 240, className: "yuu-popup-wrap" }
-        )
-        .openPopup();
+      // Skip the map-marker popup on mobile — the ETA is already shown
+      // inline under the stop row, so the popup just steals viewport.
+      if (!window.matchMedia("(max-width: 768px)").matches) {
+        const labels = splitStopLabels(stop);
+        state.selectedStopLayer
+          .bindPopup(
+            `<div class="yuu-map-popup"><strong>${escapeHtml(labels.tc || labels.en)}</strong>` +
+            (labels.tc ? `<div class="yuu-map-popup-en">${escapeHtml(labels.en)}</div>` : "") +
+            `<ol class="yuu-map-popup-eta"><li class="yuu-eta-empty">Loading…</li></ol></div>`,
+            { maxWidth: 240, className: "yuu-popup-wrap" }
+          )
+          .openPopup();
+      }
     }
 
     startEtaPolling();
@@ -1430,6 +1434,8 @@
 
   function updateMarkerPopup(etas) {
     if (!state.selectedStopLayer) return;
+    // Mobile suppresses the popup entirely; nothing to update.
+    if (window.matchMedia("(max-width: 768px)").matches) return;
     const popup = state.selectedStopLayer.getPopup();
     if (!popup) return;
     const root = popup.getElement();
