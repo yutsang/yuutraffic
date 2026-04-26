@@ -85,18 +85,53 @@
 .yuu-title { font-size: 1.05rem; }
 .yuu-mode-tabs { align-self: flex-start; }
 
-/* When the host page hosts the tabs in the back-to-projects row above the
-   widget (wrapper pages), give that row a clean layout. */
+/* Wrapper page: tabs in the back-to-projects row, styled to match the
+   host site's editorial pill buttons (.category-btn from css/site.css). */
 .yuu-back-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
   flex-wrap: wrap;
 }
-.yuu-back-link { font-size: 0.95rem; }
-.yuu-back-row .yuu-mode-tabs { align-self: auto; }
+
+.yuu-back-link {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--color-text-muted, var(--yuu-muted));
+}
+.yuu-back-link:hover { color: var(--color-text, var(--yuu-text)); }
+
+.yuu-back-row .yuu-mode-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.yuu-back-row .yuu-tab {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.4rem 0.85rem;
+  background: transparent;
+  color: var(--color-text-muted, var(--yuu-muted));
+  border: 1px solid var(--color-border, var(--yuu-border));
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.yuu-back-row .yuu-tab:hover,
+.yuu-back-row .yuu-tab.active {
+  background: var(--color-text, var(--yuu-text));
+  color: var(--color-bg, var(--yuu-bg));
+  border-color: var(--color-text, var(--yuu-text));
+}
 
 .yuu-title {
   font-size: 1.35rem;
