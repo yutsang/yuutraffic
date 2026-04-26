@@ -132,18 +132,28 @@
   box-shadow: 0 0 0 3px rgba(0, 145, 218, 0.18);
 }
 
+/* Mode select inherits the search input's chrome so the two controls feel
+   like a single segmented unit. Native select chevron is replaced by an
+   inline SVG so it matches the look across browsers. */
 .yuu-mode-select {
   flex-shrink: 0;
-  padding: 0 8px;
-  font-size: 0.85rem;
+  padding: 10px 30px 10px 14px;
+  font-size: 1rem;
   font-family: inherit;
   border: 1px solid var(--yuu-border);
   border-radius: var(--yuu-radius);
   background: var(--yuu-surface);
   color: var(--yuu-text);
-  min-height: 38px;
-  max-width: 110px;
   cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23475569' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><polyline points='1 1.5 6 6.5 11 1.5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 8px;
+  box-sizing: border-box;
+  max-width: 130px;
+  transition: border-color 120ms, box-shadow 120ms;
 }
 
 .yuu-mode-select:focus {
@@ -264,6 +274,7 @@
 .yuu-badge.GMB  { background: #2a9d8f; color: #fff; }
 .yuu-badge.MTRB { background: #1d3557; color: #fff; }
 .yuu-badge.RMB  { background: #d62828; color: #fff; }
+.yuu-badge.MTR  { background: var(--yuu-route-color, #1d3557); color: #fff; }
 
 /* ---- Route panel ---------------------------------------------------- */
 
@@ -764,9 +775,15 @@
     flex-shrink: 0;
   }
 
-  .yuu-search input {
+  .yuu-search input,
+  .yuu-search .yuu-mode-select {
     height: 44px;
     font-size: 16px; /* iOS: 16px prevents auto-zoom on focus */
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  .yuu-search .yuu-mode-select {
+    max-width: 96px;
   }
 
   .yuu-search-results {
