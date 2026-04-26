@@ -147,12 +147,20 @@ for cand in "${WRAPPER_CANDIDATES[@]}"; do
   if [[ -f "$cand" ]]; then WRAPPER_PATH="$cand"; break; fi
 done
 
-if [[ -n "$WRAPPER_PATH" ]] && grep -q "__ASSET_VER__" "$WRAPPER_PATH" 2>/dev/null; then
+if [[ -n "$WRAPPER_PATH" ]] && grep -qE "/yuutraffic/(style\.css|app\.js)\?v=" "$WRAPPER_PATH" 2>/dev/null; then
   log "Stamping wrapper at $WRAPPER_PATH"
+  # Match BOTH the initial __ASSET_VER__ placeholder and any previously
+  # stamped version, so subsequent publishes keep working.
   if [[ "$OSTYPE" == "darwin"* ]]; then
-    sed -i '' "s/__ASSET_VER__/${VER}/g" "$WRAPPER_PATH"
+    sed -i '' -E \
+      -e "s|(/yuutraffic/style\\.css\\?v=)[^\"]*|\\1${VER}|" \
+      -e "s|(/yuutraffic/app\\.js\\?v=)[^\"]*|\\1${VER}|" \
+      "$WRAPPER_PATH"
   else
-    sed -i "s/__ASSET_VER__/${VER}/g" "$WRAPPER_PATH"
+    sed -i -E \
+      -e "s|(/yuutraffic/style\\.css\\?v=)[^\"]*|\\1${VER}|" \
+      -e "s|(/yuutraffic/app\\.js\\?v=)[^\"]*|\\1${VER}|" \
+      "$WRAPPER_PATH"
   fi
   WRAPPER_REPO="$(cd "$(dirname "$WRAPPER_PATH")" && git rev-parse --show-toplevel 2>/dev/null || true)"
   if [[ -n "$WRAPPER_REPO" ]]; then
