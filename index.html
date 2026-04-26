@@ -19,13 +19,17 @@
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin="" />
-<link rel="stylesheet" href="./style.css?v=20260426025751-219dfa88" />
+<link rel="stylesheet" href="./style.css?v=20260426030623-e1d1fcf2" />
 </head>
 <body>
 <div id="yuu" class="yuu-widget">
   <header class="yuu-header">
     <h1 class="yuu-title">YuuTraffic</h1>
-    <div class="yuu-search">
+    <div class="yuu-mode-tabs" role="tablist">
+      <button type="button" class="yuu-tab active" data-mode="explore" role="tab" aria-selected="true">Explore</button>
+      <button type="button" class="yuu-tab" data-mode="plan" role="tab" aria-selected="false">Plan trip</button>
+    </div>
+    <div class="yuu-search" id="yuu-explore-controls">
       <input type="search"
              id="yuu-search-input"
              placeholder="Search route, or leave empty for nearby"
@@ -54,6 +58,32 @@
         <span class="yuu-eta-time yuu-scheduled">⏱ Scheduled</span>
         <span class="yuu-eta-time yuu-arriving">Arriving</span>
       </p>
+    </section>
+
+    <section id="yuu-plan" class="yuu-plan" hidden>
+      <div class="yuu-plan-form">
+        <label class="yuu-plan-field">
+          <span class="yuu-plan-label">From</span>
+          <div class="yuu-plan-input-wrap">
+            <input type="search" id="yuu-plan-from" autocomplete="off" spellcheck="false"
+                   placeholder="Stop name or 中文名" />
+            <div class="yuu-plan-suggest" id="yuu-plan-from-suggest" hidden></div>
+          </div>
+        </label>
+        <label class="yuu-plan-field">
+          <span class="yuu-plan-label">To</span>
+          <div class="yuu-plan-input-wrap">
+            <input type="search" id="yuu-plan-to" autocomplete="off" spellcheck="false"
+                   placeholder="Stop name or 中文名" />
+            <div class="yuu-plan-suggest" id="yuu-plan-to-suggest" hidden></div>
+          </div>
+        </label>
+        <div class="yuu-plan-actions">
+          <button type="button" id="yuu-plan-swap" class="yuu-plan-swap" title="Swap">⇅</button>
+          <button type="button" id="yuu-plan-go" class="yuu-plan-go">Plan</button>
+        </div>
+      </div>
+      <div id="yuu-plan-results" class="yuu-plan-results"></div>
     </section>
 
     <section id="yuu-route" class="yuu-route" hidden>
@@ -93,6 +123,6 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossorigin="" defer></script>
-<script src="./app.js?v=20260426025751-219dfa88" defer></script>
+<script src="./app.js?v=20260426030623-e1d1fcf2" defer></script>
 </body>
 </html>
