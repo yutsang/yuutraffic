@@ -571,39 +571,39 @@
 
 .yuu-eta {
   border: 1px solid var(--yuu-border);
+  border-left: 3px solid var(--yuu-route-color);
   border-radius: var(--yuu-radius);
-  padding: 14px;
+  padding: 10px 12px;
   background: var(--yuu-surface);
   box-shadow: var(--yuu-shadow-sm);
   align-self: flex-start;
 }
 
-.yuu-eta-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-}
-
-.yuu-eta-stop-tc {
-  color: var(--yuu-muted);
-  font-weight: 400;
-  font-size: 0.85rem;
-  margin-left: 4px;
-}
-
-.yuu-eta-controls {
-  display: flex;
+/* Refresh + freshness live in the chip toolbar. They're rendered all the
+   time so they slot into a stable layout, but visibility flips based on
+   whether a stop is selected. */
+.yuu-route-actions {
+  margin-left: auto;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.yuu-route-actions .yuu-eta-fresh,
+.yuu-route-actions #yuu-eta-refresh {
+  display: none;
+}
+
+.yuu-route-actions[data-has-stop="true"] .yuu-eta-fresh,
+.yuu-route-actions[data-has-stop="true"] #yuu-eta-refresh {
+  display: inline-flex;
 }
 
 .yuu-eta-fresh {
   color: var(--yuu-muted);
   font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .yuu-refresh-btn {
@@ -638,33 +638,47 @@
   to   { transform: rotate(360deg); }
 }
 
+/* Horizontal row of time pills — destination text removed (the route
+   header already shows origin → destination). */
 .yuu-eta-list {
   list-style: none;
   padding: 0;
   margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .yuu-eta-item {
-  padding: 8px 0;
-  border-bottom: 1px solid var(--yuu-border);
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.yuu-eta-item:last-child {
-  border: none;
-  padding-bottom: 0;
+  padding: 0;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
 }
 
 .yuu-eta-time {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  padding: 2px 10px;
+  padding: 4px 12px;
   border-radius: 999px;
   font-size: 0.9rem;
   letter-spacing: 0.01em;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.yuu-eta-op {
+  display: inline-block;
+  font-size: 0.65rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.55);
+  color: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 2px;
 }
 
 /* Live ETA (real-time GPS prediction) — vivid */
@@ -705,35 +719,9 @@
   cursor: default;
 }
 
-.yuu-eta-dest {
-  color: var(--yuu-muted);
-  font-size: 0.9rem;
-  text-align: right;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.yuu-eta-op {
-  display: inline-block;
-  padding: 1px 6px;
-  margin-right: 6px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  border-radius: 4px;
-  background: var(--yuu-border);
-  color: var(--yuu-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  vertical-align: 1px;
-}
-
-.yuu-eta-empty {
-  color: var(--yuu-muted);
-  padding: 8px 0;
-  font-style: italic;
-}
+/* (Removed: .yuu-eta-dest — destination text no longer rendered per row.
+    The earlier definition of .yuu-eta-op moves up next to .yuu-eta-time
+    above, where the joint-route operator tag sits inside each pill.) */
 
 /* Map marker popup with stop label + a few upcoming arrivals. */
 .leaflet-popup-content .yuu-map-popup {
@@ -1196,8 +1184,7 @@
      long-press on map markers (Leaflet uses pointer events). */
   .yuu-stop-name,
   .yuu-stop-name-tc,
-  .yuu-eta-time,
-  .yuu-eta-dest {
+  .yuu-eta-time {
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;

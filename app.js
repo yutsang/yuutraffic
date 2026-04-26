@@ -824,15 +824,27 @@
     if (allApprox) {
       parts.push(`<span class="yuu-schedule-chip yuu-approx-chip" title="Coordinates are best-effort">Approximate · 路線僅供參考</span>`);
     }
-    // Direction toggle — collapsed to a single swap-icon button when the
-    // route has both directions. The current direction is shown by the
-    // route title (X → Y); the icon flips it.
+    // The right side of the toolbar carries: ⇆ swap-direction (when route
+    // has both directions), then the relative-time freshness label, then
+    // the ↻ refresh button. They sit on the same row as the operator name
+    // and schedule chips so we don't waste a separate row.
+    parts.push(`<span class="yuu-route-actions">`);
     if (dirs.length > 1) {
       parts.push(
         `<button type="button" class="yuu-dir-toggle" title="Swap direction" aria-label="Swap direction">⇆</button>`
       );
     }
+    parts.push(
+      `<span class="yuu-eta-fresh" id="yuu-eta-fresh"></span>` +
+      `<button type="button" id="yuu-eta-refresh" class="yuu-refresh-btn" title="Refresh now" aria-label="Refresh ETA">↻</button>`
+    );
+    parts.push(`</span>`);
     host.innerHTML = parts.join("");
+
+    // Freshness + refresh are only relevant when a stop is selected.
+    const actions = host.querySelector(".yuu-route-actions");
+    if (actions) actions.dataset.hasStop = state.selectedStop ? "true" : "false";
+    tickFreshness();
 
     const swap = host.querySelector(".yuu-dir-toggle");
     if (swap) {
@@ -1181,16 +1193,14 @@
     );
 
     $("yuu-eta").hidden = false;
-    {
-      const labels = splitStopLabels(stop);
-      $("yuu-eta-stop").innerHTML =
-        `${stop.sequence}. ${escapeHtml(labels.tc || labels.en)}` +
-        (labels.tc ? ` <span class="yuu-eta-stop-tc">${escapeHtml(labels.en)}</span>` : "");
-    }
     if (!sameStop) {
       $("yuu-eta-list").innerHTML = '<li class="yuu-eta-empty">Loading…</li>';
-      $("yuu-eta-fresh").textContent = "";
+      const f = $("yuu-eta-fresh");
+      if (f) f.textContent = "";
     }
+    // Mark the chip toolbar so refresh + freshness become visible.
+    const actions = document.querySelector(".yuu-route-actions");
+    if (actions) actions.dataset.hasStop = "true";
 
     if (state.selectedStopLayer) state.map.removeLayer(state.selectedStopLayer);
     const color = routeColor(state.selectedRoute);
@@ -1228,10 +1238,14 @@
   // ---------------------------------------------------------------- ETA poll
 
   function initRefreshButton() {
-    $("yuu-eta-refresh").addEventListener("click", () => {
+    // Refresh button is rendered inside the chip toolbar by renderRouteChips
+    // and is therefore replaced on every direction switch / route change.
+    // Use event delegation so the click handler always works.
+    document.addEventListener("click", (e) => {
+      const btn = e.target.closest("#yuu-eta-refresh");
+      if (!btn) return;
       bumpActivity();
       if (!state.selectedStop) return;
-      const btn = $("yuu-eta-refresh");
       btn.classList.add("spinning");
       pollEta().finally(() => {
         setTimeout(() => btn.classList.remove("spinning"), 400);
@@ -1434,18 +1448,22 @@
       list.innerHTML = '<li class="yuu-eta-empty">No upcoming buses</li>';
       return;
     }
-    list.innerHTML = valid.slice(0, 5).map((e) => {
+    // Time pills only — the route header above already shows the
+    // origin → destination pair, so per-row destination text was redundant.
+    // Operator tag is preserved for joint routes so users can tell which
+    // operator's bus is arriving when KMB and Citybus run the same route.
+    const isJoint = state.selectedRoute.partners && state.selectedRoute.partners.length > 1;
+    list.innerHTML = valid.slice(0, 6).map((e) => {
       const mins = etaMinutes(e.eta);
       const arriving = mins !== null && mins <= 0;
       const cls = arriving ? "yuu-arriving" : (e.scheduled ? "yuu-scheduled" : "yuu-live");
       const badge = e.scheduled ? "⏱" : "⚡";
       const kind = e.scheduled ? "Scheduled" : "Live";
-      const op = (state.selectedRoute.partners && state.selectedRoute.partners.length > 1 && e._co)
-        ? `<span class="yuu-eta-op">${escapeHtml(COMPANY_LABEL[e._co] || e._co)}</span>`
+      const op = (isJoint && e._co)
+        ? `<span class="yuu-eta-op">${escapeHtml(e._co)}</span>`
         : "";
       return `<li class="yuu-eta-item">
-        <span class="yuu-eta-time ${cls}" title="${kind}">${badge} ${escapeHtml(etaText(e.eta))}</span>
-        <span class="yuu-eta-dest">${op}${escapeHtml(displayEn(e.dest) || "")}</span>
+        <span class="yuu-eta-time ${cls}" title="${kind}">${op}${badge} ${escapeHtml(etaText(e.eta))}</span>
       </li>`;
     }).join("");
 
