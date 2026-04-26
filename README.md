@@ -20,13 +20,9 @@
 >
 > Takes ~10–20 min (the `yuutraffic --update` step fetches fresh route/stop data from HK gov APIs). Browser-side live ETA is unaffected — it's fetched directly from KMB/MTR/etc. on every user interaction, so stale server data only means new/renamed routes take up to a week to appear.
 >
-> To also mirror the built site into your personal site repo, set this once in `~/.zshrc` (or `~/.bashrc`):
+> The widget is also embedded inside the personal-site project page at **<https://ytsang.com/projects/yuutraffic/>**. That wrapper loads `/yuutraffic/style.css`, `/yuutraffic/app.js`, and `/yuutraffic/data/` directly — same domain, same files, no mirror to maintain. So a successful `./scripts/publish.sh` updates BOTH URLs simultaneously.
 >
-> ```bash
-> export YUU_PERSONAL_SITE_PATH=~/Desktop/Github/yutsang.github.io/projects/yuutraffic
-> ```
->
-> The script will rsync `web/` there after a successful publish; commit + push that repo separately.
+> *(Optional, deprecated)* If you really need a self-contained mirror at a custom path, `YUU_PERSONAL_SITE_PATH` still works — it rsyncs `web/` (excluding `index.html` so a wrapper survives) and stamps `__ASSET_VER__` into any wrapper at the destination. Adds ~90 MB of geometry to the destination repo though, which is why the recommended pattern is to point the wrapper at `/yuutraffic/` instead.
 >
 > Full deploy notes in [`docs/DEPLOY_STATIC.md`](docs/DEPLOY_STATIC.md).
 
