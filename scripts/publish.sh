@@ -128,30 +128,48 @@ cd "$REPO_ROOT"
 
 # ---- 6. Optional mirror to personal site --------------------------------
 
-if [[ "$DO_MIRROR" == "true" && -n "${YUU_PERSONAL_SITE_PATH:-}" ]]; then
-  TARGET="$YUU_PERSONAL_SITE_PATH"
-  PARENT="$(dirname "$TARGET")"
-  if [[ ! -d "$PARENT" ]]; then
-    warn "YUU_PERSONAL_SITE_PATH parent '$PARENT' does not exist — skipping mirror."
+# Cache-bust the wrapper page on the personal site. The wrapper references
+# /yuutraffic/style.css?v=__ASSET_VER__ and /yuutraffic/app.js?v=__ASSET_VER__;
+# stamping the placeholder forces browsers to refetch fresh JS/CSS from
+# gh-pages on the next visit (Pages caches static assets for 4 h, so without
+# this the wrapper would serve stale JS for hours after a deploy).
+WRAPPER_CANDIDATES=()
+if [[ -n "${YUU_PERSONAL_SITE_PATH:-}" ]]; then
+  WRAPPER_CANDIDATES+=("$YUU_PERSONAL_SITE_PATH/index.html" "$YUU_PERSONAL_SITE_PATH")
+fi
+WRAPPER_CANDIDATES+=(
+  "$REPO_ROOT/../yutsang.github.io/projects/traffic/index.html"
+  "$REPO_ROOT/../../Github/yutsang.github.io/projects/traffic/index.html"
+)
+
+WRAPPER_PATH=""
+for cand in "${WRAPPER_CANDIDATES[@]}"; do
+  if [[ -f "$cand" ]]; then WRAPPER_PATH="$cand"; break; fi
+done
+
+if [[ -n "$WRAPPER_PATH" ]] && grep -q "__ASSET_VER__" "$WRAPPER_PATH" 2>/dev/null; then
+  log "Stamping wrapper at $WRAPPER_PATH"
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    sed -i '' "s/__ASSET_VER__/${VER}/g" "$WRAPPER_PATH"
   else
-    mkdir -p "$TARGET"
-    log "Mirroring web/ → $TARGET (excluding index.html so a host-site wrapper is preserved)"
-    # Exclude index.html so the personal site can host its own wrapper page
-    # with its nav/footer; only assets and data are synced.
-    rsync -a --delete \
-      --exclude='.git' --exclude='index.html' \
-      "$REPO_ROOT/web/" "$TARGET/"
-    # Stamp the asset version into the wrapper if one exists.
-    if [[ -f "$TARGET/index.html" ]]; then
-      if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i '' "s/__ASSET_VER__/${VER}/g" "$TARGET/index.html"
-      else
-        sed -i "s/__ASSET_VER__/${VER}/g" "$TARGET/index.html"
-      fi
-      ok "Updated cache-bust version in wrapper: $TARGET/index.html"
-    fi
-    ok "Mirror complete. Remember to commit + push in your personal site repo."
+    sed -i "s/__ASSET_VER__/${VER}/g" "$WRAPPER_PATH"
   fi
+  WRAPPER_REPO="$(cd "$(dirname "$WRAPPER_PATH")" && git rev-parse --show-toplevel 2>/dev/null || true)"
+  if [[ -n "$WRAPPER_REPO" ]]; then
+    if ! git -C "$WRAPPER_REPO" diff --quiet -- "$WRAPPER_PATH"; then
+      log "Auto-committing cache-bust to $WRAPPER_REPO"
+      git -C "$WRAPPER_REPO" add "$WRAPPER_PATH"
+      git -C "$WRAPPER_REPO" commit --quiet -m "publish: bump yuutraffic asset version to ${VER}"
+      git -C "$WRAPPER_REPO" push --quiet
+      ok "Wrapper updated and pushed."
+    else
+      ok "Wrapper version unchanged (placeholder restored?). No commit."
+    fi
+  else
+    warn "Wrapper isn't inside a git repo; commit + push it manually."
+  fi
+else
+  warn "No wrapper page with __ASSET_VER__ placeholder found. Set YUU_PERSONAL_SITE_PATH to its folder if you keep one."
 fi
 
 # ---- 7. Done ------------------------------------------------------------
