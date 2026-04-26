@@ -224,6 +224,8 @@
     initRefreshButton();
     initViewportResize();
     initModeFilter();
+    initModeTabs();
+    initTripPlanner();
     $("yuu-meta").textContent = "Loading routes…";
 
     try {
@@ -273,6 +275,40 @@
     );
   }
 
+  // Switch between Explore (default search) and Plan (trip planner) modes.
+  function initModeTabs() {
+    document.querySelectorAll(".yuu-tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const mode = btn.dataset.mode;
+        document.querySelectorAll(".yuu-tab").forEach((b) => {
+          b.classList.toggle("active", b === btn);
+          b.setAttribute("aria-selected", b === btn ? "true" : "false");
+        });
+        const explore = $("yuu-explore-controls");
+        const planSection = $("yuu-plan");
+        const welcome = $("yuu-welcome");
+        const route = $("yuu-route");
+        if (mode === "plan") {
+          if (explore) explore.hidden = true;
+          if (welcome) welcome.hidden = true;
+          if (route) route.hidden = true;
+          if (planSection) planSection.hidden = false;
+          $("yuu-plan-from")?.focus();
+        } else {
+          if (explore) explore.hidden = false;
+          if (planSection) planSection.hidden = true;
+          if (state.selectedRoute) {
+            if (welcome) welcome.hidden = true;
+            if (route) route.hidden = false;
+          } else {
+            if (welcome) welcome.hidden = false;
+            if (route) route.hidden = true;
+          }
+        }
+      });
+    });
+  }
+
   function initModeFilter() {
     const sel = $("yuu-mode-select");
     if (!sel) return;
@@ -281,6 +317,170 @@
       const input = $("yuu-search-input");
       if (input.value.trim() === "") showNearbySuggestions();
       else runSearch(input.value);
+    });
+  }
+
+  // ============================================================ Trip Planner
+  // MVP: direct routes only (one bus / MTR line from origin → destination).
+  // Interchange routing is a follow-up — flagged below.
+
+  function initTripPlanner() {
+    const from = $("yuu-plan-from");
+    const to = $("yuu-plan-to");
+    const swap = $("yuu-plan-swap");
+    const go = $("yuu-plan-go");
+    if (!from || !to || !go) return;
+
+    setupStopAutocomplete(from, $("yuu-plan-from-suggest"));
+    setupStopAutocomplete(to, $("yuu-plan-to-suggest"));
+
+    swap.addEventListener("click", () => {
+      const fv = from.value, fid = from.dataset.stopId || "";
+      from.value = to.value;
+      from.dataset.stopId = to.dataset.stopId || "";
+      to.value = fv;
+      to.dataset.stopId = fid;
+    });
+
+    go.addEventListener("click", async () => {
+      const fromId = from.dataset.stopId;
+      const toId = to.dataset.stopId;
+      if (!fromId || !toId) {
+        $("yuu-plan-results").innerHTML =
+          `<div class="yuu-plan-empty">Pick a stop from each suggestion list first.</div>`;
+        return;
+      }
+      $("yuu-plan-results").innerHTML = `<div class="yuu-plan-loading">Searching for direct routes…</div>`;
+      const trips = await planTrip(fromId, toId);
+      renderPlanResults(trips);
+    });
+  }
+
+  function setupStopAutocomplete(input, suggest) {
+    if (!input || !suggest) return;
+    let timer = null;
+    input.addEventListener("input", () => {
+      delete input.dataset.stopId;
+      clearTimeout(timer);
+      timer = setTimeout(() => searchStops(input.value, suggest, input), 180);
+    });
+    input.addEventListener("focus", () => {
+      if (input.value.trim()) searchStops(input.value, suggest, input);
+    });
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest(".yuu-plan-input-wrap")) suggest.hidden = true;
+    });
+  }
+
+  async function searchStops(q, suggest, input) {
+    const query = (q || "").trim();
+    if (query.length < 2) { suggest.hidden = true; return; }
+    const stops = await ensureStopsLoaded();
+    const lower = query.toLowerCase();
+    const matches = [];
+    for (const [id, s] of Object.entries(stops)) {
+      if (matches.length >= 14) break;
+      const ne = (s.ne || "").toLowerCase();
+      const nt = s.nt || "";
+      if (ne.includes(lower) || nt.includes(query)) {
+        matches.push({ id, ...s });
+      }
+    }
+    if (matches.length === 0) {
+      suggest.innerHTML = `<div class="yuu-plan-suggest-empty">No matching stops</div>`;
+      suggest.hidden = false;
+      return;
+    }
+    suggest.innerHTML = matches.map((m) => {
+      const tcRow = m.nt ? `<span class="yuu-plan-suggest-tc">${escapeHtml(m.nt)}</span>` : "";
+      const en = displayEn(m.ne || "");
+      return `<div class="yuu-plan-suggest-item" data-stop-id="${escapeHtml(m.id)}" data-display="${escapeHtml(m.nt || en)}">
+        ${tcRow}
+        <span class="yuu-plan-suggest-en">${escapeHtml(en)}</span>
+        <span class="yuu-plan-suggest-co">${escapeHtml(m.co || "")}</span>
+      </div>`;
+    }).join("");
+    suggest.hidden = false;
+    suggest.querySelectorAll(".yuu-plan-suggest-item").forEach((el) => {
+      el.addEventListener("click", () => {
+        input.value = el.dataset.display || "";
+        input.dataset.stopId = el.dataset.stopId;
+        suggest.hidden = true;
+      });
+    });
+  }
+
+  async function planTrip(fromId, toId) {
+    const sr = await ensureStopRoutesLoaded();
+    const fromRoutes = new Set(sr[fromId] || []);
+    const toRoutes = new Set(sr[toId] || []);
+    // Direct: routes that serve both stops in the right order
+    const directRks = [...fromRoutes].filter((rk) => toRoutes.has(rk));
+    const direct = [];
+    for (const rk of directRks) {
+      const route = state.routes.find((r) => r.rk === rk);
+      if (!route) continue;
+      for (const d of (route.dirs && route.dirs.length ? route.dirs : [1])) {
+        try {
+          const geo = await fetchJson(`${DATA_BASE}/geometry/${rk}_${d}.json`);
+          const stops = geo.stops || [];
+          const fIdx = stops.findIndex((s) => s.stop_id === fromId);
+          const tIdx = stops.findIndex((s) => s.stop_id === toId);
+          if (fIdx >= 0 && tIdx > fIdx) {
+            direct.push({
+              route, dir: d,
+              fromIdx: fIdx, toIdx: tIdx,
+              hops: tIdx - fIdx,
+              fromName: stops[fIdx].stop_name_tc || stops[fIdx].stop_name,
+              toName: stops[tIdx].stop_name_tc || stops[tIdx].stop_name,
+            });
+          }
+        } catch (e) { /* missing geometry: skip */ }
+      }
+    }
+    // Sort: fewest hops first, then natural by route id
+    direct.sort((a, b) =>
+      a.hops - b.hops || compareRouteIds(a.route.id, b.route.id)
+    );
+    return { direct };
+  }
+
+  function renderPlanResults(trips) {
+    const el = $("yuu-plan-results");
+    if (!trips.direct.length) {
+      el.innerHTML =
+        `<div class="yuu-plan-empty">No direct route between these stops. ` +
+        `<small>Interchange routing is on the way — for now try picking stops on the same bus or MTR line.</small></div>`;
+      return;
+    }
+    el.innerHTML = `<div class="yuu-plan-section-title">${trips.direct.length} direct route${trips.direct.length === 1 ? "" : "s"}</div>` +
+      trips.direct.map((t) => {
+        const rc = routeColor(t.route);
+        const opName = COMPANY_LABEL[t.route.co] || t.route.co;
+        const dirLabel = (t.dir === 1 ? t.route.de : t.route.oe) || "";
+        return `<div class="yuu-plan-card">
+          <div class="yuu-plan-card-head" style="--card-color:${rc}">
+            <span class="yuu-badge ${t.route.co}" style="background:${rc};color:#fff">${escapeHtml(t.route.id)}</span>
+            <div class="yuu-plan-card-meta">
+              <span class="yuu-plan-card-co">${escapeHtml(opName)}</span>
+              <span class="yuu-plan-card-direction">→ ${escapeHtml(displayEn(dirLabel))}</span>
+            </div>
+            <span class="yuu-plan-card-hops">${t.hops} stop${t.hops === 1 ? "" : "s"}</span>
+          </div>
+          <div class="yuu-plan-card-body">
+            <span class="yuu-plan-card-leg">${escapeHtml(t.fromName || "")} → ${escapeHtml(t.toName || "")}</span>
+            <button type="button" class="yuu-plan-open" data-rk="${escapeHtml(t.route.rk)}" data-dir="${t.dir}">View →</button>
+          </div>
+        </div>`;
+      }).join("");
+    el.querySelectorAll(".yuu-plan-open").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const route = state.routes.find((r) => r.rk === btn.dataset.rk);
+        if (!route) return;
+        document.querySelector('.yuu-tab[data-mode="explore"]')?.click();
+        state.selectedDirection = Number(btn.dataset.dir) || 1;
+        selectRoute(route);
+      });
     });
   }
 
