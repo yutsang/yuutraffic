@@ -1083,29 +1083,26 @@
     max-height: 50vh;
   }
 
-  /* -- Map: adaptive height + sticky -------------------------------- */
+  /* -- Map: adaptive height ------------------------------------------ */
+  /* Earlier we made the map sticky as well, but stacking sticky search +
+     sticky map + sticky route header consumed ~60% of the viewport before
+     a single stop was visible. Drop sticky here; only the search header
+     stays pinned. The stop list now starts much higher in the viewport. */
   .yuu-map {
-    height: 32svh;
-    min-height: 220px;
-    max-height: 400px;
+    height: 30svh;
+    min-height: 200px;
+    max-height: 360px;
     margin: 0 -10px 0;
     border-radius: 0;
-    position: sticky;
-    top: 56px;                /* below the sticky search header */
-    z-index: 500;
   }
 
-  /* Route header sticks below the map so direction chips and operator
-     label stay visible while the user scrolls the stop list. */
   .yuu-route-header {
-    position: sticky;
-    top: calc(56px + 32svh);
-    z-index: 400;
-    background: var(--yuu-bg);
     margin: 0 -10px;
-    padding: 10px;
+    padding: 8px 10px;
     border-bottom: 1px solid var(--yuu-border);
   }
+
+  .yuu-route-title { font-size: 0.95rem; line-height: 1.25; }
 
   .yuu-route-chips {
     margin-top: 4px;

@@ -19,15 +19,16 @@
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin="" />
-<link rel="stylesheet" href="./style.css?v=20260426030623-e1d1fcf2" />
+<link rel="stylesheet" href="./style.css?v=20260426031822-e1d1fcf2" />
 </head>
 <body>
 <div id="yuu" class="yuu-widget">
   <header class="yuu-header">
     <h1 class="yuu-title">YuuTraffic</h1>
     <div class="yuu-mode-tabs" role="tablist">
-      <button type="button" class="yuu-tab active" data-mode="explore" role="tab" aria-selected="true">Explore</button>
-      <button type="button" class="yuu-tab" data-mode="plan" role="tab" aria-selected="false">Plan trip</button>
+      <button type="button" class="yuu-tab active" data-tab="bus"  role="tab" aria-selected="true">Bus</button>
+      <button type="button" class="yuu-tab"        data-tab="mtr"  role="tab" aria-selected="false">MTR</button>
+      <button type="button" class="yuu-tab"        data-tab="plan" role="tab" aria-selected="false">Plan trip</button>
     </div>
     <div class="yuu-search" id="yuu-explore-controls">
       <input type="search"
@@ -36,12 +37,13 @@
              autocomplete="off"
              spellcheck="false"
              aria-label="Search route" />
-      <select id="yuu-mode-select" class="yuu-mode-select" aria-label="Filter by mode">
+      <select id="yuu-mode-select" class="yuu-mode-select" aria-label="Filter by operator">
         <option value="">All</option>
-        <option value="bus">Bus</option>
-        <option value="minibus">Minibus</option>
-        <option value="mtrb">MTR Bus</option>
-        <option value="mtr">MTR Rail</option>
+        <option value="KMB">KMB / LWB</option>
+        <option value="CTB">Citybus</option>
+        <option value="GMB">Green Minibus</option>
+        <option value="MTRB">MTR Bus</option>
+        <option value="RMB">Red Minibus</option>
       </select>
       <div id="yuu-search-results" class="yuu-search-results" hidden></div>
     </div>
@@ -123,6 +125,6 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossorigin="" defer></script>
-<script src="./app.js?v=20260426030623-e1d1fcf2" defer></script>
+<script src="./app.js?v=20260426031822-e1d1fcf2" defer></script>
 </body>
 </html>

@@ -42,12 +42,11 @@
     MTR: "MTR Rail",
   };
 
-  // Mode → set of company codes for the search filter dropdown.
-  const MODE_TO_COMPANIES = {
-    bus:     new Set(["KMB", "CTB"]),
-    minibus: new Set(["GMB", "RMB"]),
-    mtrb:    new Set(["MTRB"]),
-    mtr:     new Set(["MTR"]), // reserved for the future MTR-rail rollout
+  // Top-level tabs map to the set of company codes that show up in search.
+  // The Bus tab also accepts a sub-filter via the operator <select>.
+  const TAB_COMPANIES = {
+    bus: new Set(["KMB", "CTB", "GMB", "MTRB", "RMB"]),
+    mtr: new Set(["MTR"]),
   };
 
   // Heuristic labels derived from the HK route-number suffix/prefix. Used to
@@ -115,6 +114,7 @@
     youAreHereLayer: null,
     nearbyRoutes: null,     // cached result of geolocation search
     userLocation: null,     // {lat, lng} after permission granted
+    activeTab: "bus",       // "bus" | "mtr" | "plan"
     etaTimer: null,
     etaErrorCount: 0,
     lastUserActionAt: Date.now(),
@@ -275,38 +275,64 @@
     );
   }
 
-  // Switch between Explore (default search) and Plan (trip planner) modes.
+  // Three tabs:
+  //   Bus  → search across KMB/CTB/GMB/MTRB/RMB; operator <select> narrows
+  //   MTR  → MTR rail only; operator <select> hidden
+  //   Plan → trip planner panel (search input hidden)
   function initModeTabs() {
     document.querySelectorAll(".yuu-tab").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const mode = btn.dataset.mode;
-        document.querySelectorAll(".yuu-tab").forEach((b) => {
-          b.classList.toggle("active", b === btn);
-          b.setAttribute("aria-selected", b === btn ? "true" : "false");
-        });
-        const explore = $("yuu-explore-controls");
-        const planSection = $("yuu-plan");
-        const welcome = $("yuu-welcome");
-        const route = $("yuu-route");
-        if (mode === "plan") {
-          if (explore) explore.hidden = true;
-          if (welcome) welcome.hidden = true;
-          if (route) route.hidden = true;
-          if (planSection) planSection.hidden = false;
-          $("yuu-plan-from")?.focus();
-        } else {
-          if (explore) explore.hidden = false;
-          if (planSection) planSection.hidden = true;
-          if (state.selectedRoute) {
-            if (welcome) welcome.hidden = true;
-            if (route) route.hidden = false;
-          } else {
-            if (welcome) welcome.hidden = false;
-            if (route) route.hidden = true;
-          }
-        }
-      });
+      btn.addEventListener("click", () => activateTab(btn.dataset.tab));
     });
+    activateTab("bus");
+  }
+
+  function activateTab(tab) {
+    state.activeTab = tab;
+    document.querySelectorAll(".yuu-tab").forEach((b) => {
+      const on = b.dataset.tab === tab;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+
+    const explore = $("yuu-explore-controls");
+    const planSec = $("yuu-plan");
+    const welcome = $("yuu-welcome");
+    const route   = $("yuu-route");
+    const sel     = $("yuu-mode-select");
+
+    if (tab === "plan") {
+      if (explore) explore.hidden = true;
+      if (welcome) welcome.hidden = true;
+      if (route)   route.hidden   = true;
+      if (planSec) planSec.hidden = false;
+      $("yuu-plan-from")?.focus();
+      return;
+    }
+
+    if (planSec) planSec.hidden = true;
+    if (explore) explore.hidden = false;
+    // Operator-narrow dropdown only makes sense on the Bus tab.
+    if (sel) sel.style.display = (tab === "bus") ? "" : "none";
+
+    // Refresh the visible content depending on whether a route is selected
+    // and whether it belongs to the active tab.
+    const r = state.selectedRoute;
+    const fits = r && (TAB_COMPANIES[tab]?.has(r.co) ||
+                       (r.partners && r.partners.some((p) => TAB_COMPANIES[tab]?.has(p.co))));
+    if (fits) {
+      if (welcome) welcome.hidden = true;
+      if (route)   route.hidden   = false;
+    } else {
+      if (welcome) welcome.hidden = false;
+      if (route)   route.hidden   = true;
+    }
+
+    // Refresh search dropdown to show only routes matching the new tab.
+    const input = $("yuu-search-input");
+    if (input) {
+      if (input.value.trim()) runSearch(input.value);
+      else showNearbySuggestions();
+    }
   }
 
   function initModeFilter() {
@@ -484,19 +510,25 @@
     });
   }
 
-  function selectedMode() {
-    const sel = $("yuu-mode-select");
-    return sel ? sel.value : "";
-  }
-
   function passesModeFilter(route) {
-    const mode = selectedMode();
-    if (!mode) return true;
-    const wanted = MODE_TO_COMPANIES[mode];
-    if (!wanted) return true;
-    if (wanted.has(route.co)) return true;
-    if (route.partners) return route.partners.some((p) => wanted.has(p.co));
-    return false;
+    // Top-level tab gate first: route must belong to the active tab's mode.
+    const tab = state.activeTab || "bus";
+    const tabSet = TAB_COMPANIES[tab];
+    if (tabSet) {
+      const inTab = tabSet.has(route.co) ||
+        (route.partners && route.partners.some((p) => tabSet.has(p.co)));
+      if (!inTab) return false;
+    }
+    // Bus-tab sub-filter via operator <select>: empty = any operator inside
+    // the tab's set; specific = only that operator.
+    if (tab === "bus") {
+      const op = $("yuu-mode-select")?.value || "";
+      if (!op) return true;
+      if (route.co === op) return true;
+      if (route.partners && route.partners.some((p) => p.co === op)) return true;
+      return false;
+    }
+    return true;
   }
 
   function applyEmbedMode() {
@@ -709,6 +741,11 @@
 
   async function selectRoute(route) {
     bumpActivity();
+    // Auto-switch to the matching tab so the user doesn't have to flip
+    // between Bus and MTR manually when picking a route from search.
+    if (route.co === "MTR" && state.activeTab !== "mtr") activateTab("mtr");
+    else if (route.co !== "MTR" && state.activeTab === "mtr") activateTab("bus");
+
     state.selectedRoute = route;
     state.selectedStop = null;
     state.selectedDirection = (route.dirs && route.dirs[0]) || 1;
