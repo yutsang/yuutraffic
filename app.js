@@ -503,7 +503,8 @@
       btn.addEventListener("click", () => {
         const route = state.routes.find((r) => r.rk === btn.dataset.rk);
         if (!route) return;
-        document.querySelector('.yuu-tab[data-mode="explore"]')?.click();
+        // Switch back to the matching tab (Bus or MTR) before selecting.
+        activateTab(route.co === "MTR" ? "mtr" : "bus");
         state.selectedDirection = Number(btn.dataset.dir) || 1;
         selectRoute(route);
       });

@@ -77,11 +77,26 @@
 
 .yuu-header {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.yuu-title { font-size: 1.05rem; }
+.yuu-mode-tabs { align-self: flex-start; }
+
+/* When the host page hosts the tabs in the back-to-projects row above the
+   widget (wrapper pages), give that row a clean layout. */
+.yuu-back-row {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
+.yuu-back-link { font-size: 0.95rem; }
+.yuu-back-row .yuu-mode-tabs { align-self: auto; }
 
 .yuu-title {
   font-size: 1.35rem;
@@ -137,7 +152,7 @@
    inline SVG so it matches the look across browsers. */
 .yuu-mode-select {
   flex-shrink: 0;
-  padding: 10px 30px 10px 14px;
+  padding: 10px 30px 10px 18px;
   font-size: 1rem;
   font-family: inherit;
   border: 1px solid var(--yuu-border);
@@ -149,11 +164,18 @@
   -webkit-appearance: none;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23475569' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><polyline points='1 1.5 6 6.5 11 1.5'/></svg>");
   background-repeat: no-repeat;
-  background-position: right 10px center;
+  background-position: right 12px center;
   background-size: 12px 8px;
   box-sizing: border-box;
-  max-width: 130px;
+  max-width: 140px;
   transition: border-color 120ms, box-shadow 120ms;
+  text-indent: 2px; /* lift options text a touch from the left edge */
+}
+
+/* Right-pad the OS-rendered options list so the text doesn't hug the
+   left border in Chrome/Safari. */
+.yuu-mode-select option {
+  padding: 6px 14px;
 }
 
 .yuu-mode-select:focus {
@@ -1058,18 +1080,14 @@
     max-width: 96px;
   }
 
-  /* Tabs become a full-width row above the search controls on phones */
-  .yuu-mode-tabs {
-    width: 100%;
-    order: 1;
-  }
+  /* Mobile: title small + tabs same row, search row below. The grid
+     defined above already does this; just shrink the title here. */
+  .yuu-title { font-size: 0.9rem; }
+  .yuu-mode-tabs { gap: 4px; }
   .yuu-tab {
-    flex: 1;
-    padding: 10px 12px;
-    font-size: 0.9rem;
+    padding: 8px 10px;
+    font-size: 0.82rem;
   }
-  .yuu-search { order: 2; width: 100%; }
-  .yuu-title  { order: 0; }
 
   .yuu-plan-form {
     padding: 12px;
