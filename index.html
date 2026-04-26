@@ -19,7 +19,7 @@
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin="" />
-<link rel="stylesheet" href="./style.css?v=20260426143604-246f747a" />
+<link rel="stylesheet" href="./style.css?v=20260426144647-ecbb29c1" />
 </head>
 <body>
 <div id="yuu" class="yuu-widget">
@@ -63,8 +63,13 @@
     </section>
 
     <section id="yuu-mtr-view" class="yuu-mtr-view" hidden>
+      <div class="yuu-mtr-toggle" role="tablist">
+        <button class="yuu-mtr-toggle-btn active" data-mtr-mode="diagram" type="button">Diagram</button>
+        <button class="yuu-mtr-toggle-btn"        data-mtr-mode="map"     type="button">Map</button>
+      </div>
       <div id="yuu-mtr-lines" class="yuu-mtr-lines" role="tablist"></div>
       <div id="yuu-mtr-line-detail" class="yuu-mtr-line-detail"></div>
+      <div id="yuu-mtr-map" class="yuu-mtr-map" hidden></div>
     </section>
 
     <section id="yuu-plan" class="yuu-plan" hidden>
@@ -119,6 +124,6 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossorigin="" defer></script>
-<script src="./app.js?v=20260426143604-246f747a" defer></script>
+<script src="./app.js?v=20260426144647-ecbb29c1" defer></script>
 </body>
 </html>

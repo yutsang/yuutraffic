@@ -228,6 +228,7 @@
     initViewportResize();
     initModeFilter();
     initModeTabs();
+    initMtrToggle();
     initTripPlanner();
     $("yuu-meta").textContent = "Loading routes…";
 
@@ -360,14 +361,180 @@
   }
 
   // ============================================================ MTR View
-  // Dedicated, network-style UI for the MTR rail tab. Designed to feel like
-  // a metro app rather than the bus list:
-  //   - Top: scrollable row of line chips, each in its brand colour.
-  //   - Below: vertical station diagram with the line drawn in its colour.
-  //   - Tap a station → expand inline with UP / DOWN next-train pills.
+  // Two presentations:
+  //   - Diagram: scrollable line chips + vertical station list per line.
+  //   - Map:     full Leaflet map of the network, click any station for
+  //              ETAs across all lines that serve it + Set as From/To.
 
   let mtrEtaTimer = null;
   let activeMtrStationEl = null;
+  let mtrMap = null;
+  const mtrStationMarkers = new Map(); // mtr_code → Leaflet marker
+  const mtrStationLines   = new Map(); // mtr_code → Set<line_id>
+
+  function initMtrToggle() {
+    document.querySelectorAll(".yuu-mtr-toggle-btn").forEach((btn) => {
+      btn.addEventListener("click", () => switchMtrMode(btn.dataset.mtrMode));
+    });
+  }
+
+  function switchMtrMode(mode) {
+    document.querySelectorAll(".yuu-mtr-toggle-btn").forEach((b) =>
+      b.classList.toggle("active", b.dataset.mtrMode === mode)
+    );
+    const showMap = mode === "map";
+    $("yuu-mtr-lines").hidden        = showMap;
+    $("yuu-mtr-line-detail").hidden  = showMap;
+    $("yuu-mtr-map").hidden          = !showMap;
+    if (showMap) {
+      stopMtrEtaPolling();
+      ensureMtrMapRendered();
+    }
+  }
+
+  async function ensureMtrMapRendered() {
+    if (mtrMap) {
+      // Re-render tile grid in case the container was hidden when we made it.
+      setTimeout(() => mtrMap.invalidateSize(), 0);
+      return;
+    }
+    mtrMap = L.map("yuu-mtr-map", { zoomControl: true })
+      .setView([22.34, 114.17], 11);
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+      attribution: '&copy; OSM &copy; CARTO',
+      subdomains: "abcd",
+      maxZoom: 19,
+    }).addTo(mtrMap);
+
+    // Lazy-load stops bundle so we can resolve station coords + names.
+    const stops = await ensureStopsLoaded();
+    const lines = state.routes.filter((r) => r.co === "MTR");
+
+    for (const line of lines) {
+      const c = MTR_LINE_COLOR[line.id] || "#1d3557";
+      try {
+        const geo = await fetchJson(`${DATA_BASE}/geometry/${line.rk}_1.json`);
+        const coords = (geo.coords || []).filter(
+          (p) => Array.isArray(p) && typeof p[0] === "number"
+        );
+        if (coords.length > 1) {
+          L.polyline(coords, { color: c, weight: 4, opacity: 0.85 }).addTo(mtrMap);
+        }
+        for (const s of (geo.stops || [])) {
+          const code = s.mtr_code;
+          if (!code) continue;
+          if (!mtrStationLines.has(code)) mtrStationLines.set(code, new Set());
+          mtrStationLines.get(code).add(line.id);
+        }
+      } catch (e) { /* missing geom */ }
+    }
+
+    // One marker per unique station (interchange stations get a bigger
+    // white-filled circle outlined in their primary line's colour).
+    mtrStationLines.forEach((lineSet, code) => {
+      const stop = stops[`MTR_${code}`];
+      if (!stop) return;
+      const lns = [...lineSet];
+      const isInterchange = lns.length > 1;
+      const primary = MTR_LINE_COLOR[lns[0]] || "#1d3557";
+      const marker = L.circleMarker([stop.la, stop.lg], {
+        radius: isInterchange ? 7 : 5,
+        fillColor: isInterchange ? "#ffffff" : primary,
+        color: primary,
+        weight: isInterchange ? 3 : 2,
+        fillOpacity: 1,
+      }).addTo(mtrMap);
+      marker.bindTooltip(`${stop.nt || stop.ne} (${code})`);
+      marker.on("click", () => openMtrStationPopup(code, stop, lns));
+      mtrStationMarkers.set(code, marker);
+    });
+  }
+
+  // Custom popup that shows: station name, lines served, next train per
+  // line per direction, and Set-as-From / Set-as-To buttons that pre-fill
+  // the trip planner.
+  async function openMtrStationPopup(code, stop, lns) {
+    const marker = mtrStationMarkers.get(code);
+    if (!marker) return;
+    const tcName = stop.nt || stop.ne;
+    const enName = stop.ne || code;
+    const linesHtml = lns.map((l) =>
+      `<span class="yuu-mtr-popup-line" style="background:${MTR_LINE_COLOR[l] || "#1d3557"}">${escapeHtml(l)}</span>`
+    ).join("");
+    const popupId = `yuu-mtr-popup-${code}`;
+    marker.bindPopup(
+      `<div class="yuu-mtr-popup" id="${popupId}">
+        <strong>${escapeHtml(tcName)}</strong>
+        <div class="yuu-mtr-popup-en">${escapeHtml(enName)} · ${escapeHtml(code)}</div>
+        <div class="yuu-mtr-popup-lines">${linesHtml}</div>
+        <div class="yuu-mtr-popup-eta">Loading next trains…</div>
+        <div class="yuu-mtr-popup-actions">
+          <button type="button" class="yuu-mtr-popup-btn" data-action="from"
+                  data-stop-id="MTR_${escapeHtml(code)}"
+                  data-display="${escapeHtml(tcName)}">Set as From</button>
+          <button type="button" class="yuu-mtr-popup-btn" data-action="to"
+                  data-stop-id="MTR_${escapeHtml(code)}"
+                  data-display="${escapeHtml(tcName)}">Set as To</button>
+        </div>
+      </div>`,
+      { maxWidth: 280, className: "yuu-popup-wrap" }
+    ).openPopup();
+
+    // Wire from/to buttons after popup mounts (next tick).
+    setTimeout(() => {
+      const root = document.getElementById(popupId);
+      if (!root) return;
+      root.querySelectorAll(".yuu-mtr-popup-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const which = btn.dataset.action; // "from" | "to"
+          const inp = $(`yuu-plan-${which}`);
+          if (!inp) return;
+          inp.value = btn.dataset.display;
+          inp.dataset.stopId = btn.dataset.stopId;
+          // Switch to plan tab so user sees the input filled in.
+          activateTab("plan");
+        });
+      });
+    }, 50);
+
+    // Fetch the schedule for each line in parallel and render summarised
+    // next-train rows into the popup.
+    try {
+      const fetches = lns.map((line) =>
+        fetchJson(`https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line=${encodeURIComponent(line)}&sta=${encodeURIComponent(code)}`,
+          { cache: "no-store" })
+          .then((raw) => ({ line, data: raw.data?.[`${line}-${code}`] || {} }))
+          .catch(() => ({ line, data: {} }))
+      );
+      const all = await Promise.all(fetches);
+      const formatTime = (e) => {
+        if (!e || !e.time) return null;
+        const iso = e.time.replace(" ", "T") + "+08:00";
+        const m = Math.round((new Date(iso).getTime() - Date.now()) / 60_000);
+        return m <= 0 ? "Now" : (m === 1 ? "1 min" : `${m} min`);
+      };
+      const rows = all.map(({ line, data }) => {
+        const c = MTR_LINE_COLOR[line] || "#1d3557";
+        const ups = (data.UP   || []).filter((e) => e.valid !== "N");
+        const dns = (data.DOWN || []).filter((e) => e.valid !== "N");
+        const upOnly = ups[0] ? `↑ ${formatTime(ups[0])}` : "";
+        const dnOnly = dns[0] ? `↓ ${formatTime(dns[0])}` : "";
+        if (!upOnly && !dnOnly) return "";
+        return `<div class="yuu-mtr-popup-line-row">
+          <span class="yuu-mtr-popup-line" style="background:${c}">${escapeHtml(line)}</span>
+          <span>${upOnly}</span><span>${dnOnly}</span>
+        </div>`;
+      }).join("");
+      const root = document.getElementById(popupId);
+      if (root) {
+        const etaBox = root.querySelector(".yuu-mtr-popup-eta");
+        if (etaBox) etaBox.innerHTML = rows || "No upcoming trains";
+      }
+    } catch (e) {
+      const root = document.getElementById(popupId);
+      if (root) root.querySelector(".yuu-mtr-popup-eta").textContent = "ETA unavailable";
+    }
+  }
 
   function ensureMtrLinesRendered() {
     const host = $("yuu-mtr-lines");
@@ -553,17 +720,37 @@
     });
 
     go.addEventListener("click", async () => {
-      const fromId = from.dataset.stopId;
-      const toId = to.dataset.stopId;
-      if (!fromId || !toId) {
+      const fromEnd = endpointFrom(from);
+      const toEnd = endpointFrom(to);
+      if (!fromEnd || !toEnd) {
         $("yuu-plan-results").innerHTML =
-          `<div class="yuu-plan-empty">Pick a stop from each suggestion list first.</div>`;
+          `<div class="yuu-plan-empty">Pick a stop or address suggestion in each box first.</div>`;
         return;
       }
-      $("yuu-plan-results").innerHTML = `<div class="yuu-plan-loading">Searching for direct routes…</div>`;
-      const trips = await planTrip(fromId, toId);
-      renderPlanResults(trips);
+      $("yuu-plan-results").innerHTML = `<div class="yuu-plan-loading">Searching routes…</div>`;
+      try {
+        const trips = await planTripMulti(fromEnd, toEnd);
+        renderPlanResults(trips, fromEnd, toEnd);
+      } catch (err) {
+        console.error(err);
+        $("yuu-plan-results").innerHTML =
+          `<div class="yuu-plan-empty">Could not search routes. Try again.</div>`;
+      }
     });
+  }
+
+  function endpointFrom(input) {
+    if (!input) return null;
+    if (input.dataset.stopId) return { kind: "stop", stopId: input.dataset.stopId, label: input.value };
+    if (input.dataset.lat && input.dataset.lng) {
+      return {
+        kind: "addr",
+        lat: parseFloat(input.dataset.lat),
+        lng: parseFloat(input.dataset.lng),
+        label: input.value,
+      };
+    }
+    return null;
   }
 
   function setupStopAutocomplete(input, suggest) {
@@ -589,105 +776,208 @@
     const lower = query.toLowerCase();
     const matches = [];
     for (const [id, s] of Object.entries(stops)) {
-      if (matches.length >= 14) break;
+      if (matches.length >= 8) break;
       const ne = (s.ne || "").toLowerCase();
       const nt = s.nt || "";
       if (ne.includes(lower) || nt.includes(query)) {
         matches.push({ id, ...s });
       }
     }
-    if (matches.length === 0) {
-      suggest.innerHTML = `<div class="yuu-plan-suggest-empty">No matching stops</div>`;
-      suggest.hidden = false;
-      return;
-    }
-    suggest.innerHTML = matches.map((m) => {
+
+    // Always offer Nominatim address suggestions as a complement to stop
+    // matches — addresses geocode to (lat, lng) which the planner uses to
+    // find walking-distance stops near each end.
+    let addresses = [];
+    try {
+      addresses = await geocodeAddress(query);
+    } catch (e) { /* network blip → fall through */ }
+
+    const stopHtml = matches.map((m) => {
       const tcRow = m.nt ? `<span class="yuu-plan-suggest-tc">${escapeHtml(m.nt)}</span>` : "";
       const en = displayEn(m.ne || "");
-      return `<div class="yuu-plan-suggest-item" data-stop-id="${escapeHtml(m.id)}" data-display="${escapeHtml(m.nt || en)}">
+      return `<div class="yuu-plan-suggest-item" data-mode="stop"
+                   data-stop-id="${escapeHtml(m.id)}"
+                   data-display="${escapeHtml(m.nt || en)}">
         ${tcRow}
         <span class="yuu-plan-suggest-en">${escapeHtml(en)}</span>
         <span class="yuu-plan-suggest-co">${escapeHtml(m.co || "")}</span>
       </div>`;
     }).join("");
+
+    const addrHtml = addresses.slice(0, 5).map((a) => `
+      <div class="yuu-plan-suggest-item" data-mode="addr"
+           data-lat="${a.lat}" data-lng="${a.lon}"
+           data-display="${escapeHtml(a.display_name)}">
+        <span class="yuu-plan-suggest-tc">${escapeHtml(a.display_name)}</span>
+        <span class="yuu-plan-suggest-co">📍 Address</span>
+      </div>`).join("");
+
+    if (!stopHtml && !addrHtml) {
+      suggest.innerHTML = `<div class="yuu-plan-suggest-empty">No matches</div>`;
+      suggest.hidden = false;
+      return;
+    }
+
+    const stopHeader  = stopHtml ? `<div class="yuu-plan-suggest-section">Stops</div>` : "";
+    const addrHeader  = addrHtml ? `<div class="yuu-plan-suggest-section">Addresses</div>` : "";
+    suggest.innerHTML = stopHeader + stopHtml + addrHeader + addrHtml;
     suggest.hidden = false;
     suggest.querySelectorAll(".yuu-plan-suggest-item").forEach((el) => {
       el.addEventListener("click", () => {
         input.value = el.dataset.display || "";
-        input.dataset.stopId = el.dataset.stopId;
+        if (el.dataset.mode === "stop") {
+          input.dataset.stopId = el.dataset.stopId;
+          delete input.dataset.lat;
+          delete input.dataset.lng;
+        } else {
+          input.dataset.lat = el.dataset.lat;
+          input.dataset.lng = el.dataset.lng;
+          delete input.dataset.stopId;
+        }
         suggest.hidden = true;
       });
     });
   }
 
-  async function planTrip(fromId, toId) {
+  // Nominatim geocoding — limited to HK, English/Chinese names, max 5
+  // results. Free public service; respect their 1 req/sec etiquette.
+  let _geocodeCache = new Map(), _geocodeInflight = null;
+  async function geocodeAddress(query) {
+    const key = query.toLowerCase();
+    if (_geocodeCache.has(key)) return _geocodeCache.get(key);
+    if (_geocodeInflight) await _geocodeInflight.catch(() => {});
+    _geocodeInflight = (async () => {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query + " Hong Kong")}&format=json&limit=5&accept-language=en,zh-HK&countrycodes=hk&addressdetails=0`;
+      const resp = await fetch(url, { headers: { "Accept": "application/json" } });
+      if (!resp.ok) return [];
+      const data = await resp.json();
+      _geocodeCache.set(key, data);
+      return data;
+    })();
+    try { return await _geocodeInflight; }
+    finally { _geocodeInflight = null; }
+  }
+
+  // For an arbitrary point, find the N nearest bus/MTR stops within radius.
+  function nearestStopsTo(lat, lng, radiusM = 600, maxN = 8) {
+    const stops = state.stops || {};
+    const out = [];
+    for (const [id, s] of Object.entries(stops)) {
+      const d = distanceM(lat, lng, s.la, s.lg);
+      if (d <= radiusM) out.push({ id, distance: d, ...s });
+    }
+    out.sort((a, b) => a.distance - b.distance);
+    return out.slice(0, maxN);
+  }
+
+  // Resolve an endpoint to a list of candidate boarding/alighting stops
+  // with walking distance attached. For a stop endpoint that's just the
+  // stop itself; for an address it's the N nearest stops in walking range.
+  async function endpointToStops(end) {
+    await ensureStopsLoaded();
+    if (end.kind === "stop") {
+      const s = state.stops[end.stopId];
+      return [{ id: end.stopId, distance: 0, ...(s || {}) }];
+    }
+    return nearestStopsTo(end.lat, end.lng, 600, 6);
+  }
+
+  // Multi-stop search: for every pair (oStop, dStop) in the cross-product of
+  // walking-range stops at each endpoint, look for direct routes. Sort by
+  // total wall-time = walk + transit (rough estimate).
+  async function planTripMulti(fromEnd, toEnd) {
     const sr = await ensureStopRoutesLoaded();
-    const fromRoutes = new Set(sr[fromId] || []);
-    const toRoutes = new Set(sr[toId] || []);
-    // Direct: routes that serve both stops in the right order
-    const directRks = [...fromRoutes].filter((rk) => toRoutes.has(rk));
-    const direct = [];
-    for (const rk of directRks) {
-      const route = state.routes.find((r) => r.rk === rk);
-      if (!route) continue;
-      for (const d of (route.dirs && route.dirs.length ? route.dirs : [1])) {
-        try {
-          const geo = await fetchJson(`${DATA_BASE}/geometry/${rk}_${d}.json`);
-          const stops = geo.stops || [];
-          const fIdx = stops.findIndex((s) => s.stop_id === fromId);
-          const tIdx = stops.findIndex((s) => s.stop_id === toId);
-          if (fIdx >= 0 && tIdx > fIdx) {
-            direct.push({
-              route, dir: d,
-              fromIdx: fIdx, toIdx: tIdx,
-              hops: tIdx - fIdx,
-              fromName: stops[fIdx].stop_name_tc || stops[fIdx].stop_name,
-              toName: stops[tIdx].stop_name_tc || stops[tIdx].stop_name,
-            });
+    const fromStops = await endpointToStops(fromEnd);
+    const toStops   = await endpointToStops(toEnd);
+    if (!fromStops.length || !toStops.length) return { direct: [] };
+
+    // Track best (fewest-hops) result per route_key so we don't list the
+    // same route 6 times boarding from 6 nearby stops.
+    const byRoute = new Map();
+    // Build pairs of (origin route → dest route) candidates only when they
+    // actually share a route key.
+    for (const oStop of fromStops) {
+      const oRoutes = new Set(sr[oStop.id] || []);
+      for (const dStop of toStops) {
+        const dRoutes = new Set(sr[dStop.id] || []);
+        for (const rk of oRoutes) {
+          if (!dRoutes.has(rk)) continue;
+          const route = state.routes.find((r) => r.rk === rk);
+          if (!route) continue;
+          for (const d of (route.dirs && route.dirs.length ? route.dirs : [1])) {
+            try {
+              const geo = await fetchJson(`${DATA_BASE}/geometry/${rk}_${d}.json`);
+              const stops = geo.stops || [];
+              const fIdx = stops.findIndex((s) => s.stop_id === oStop.id);
+              const tIdx = stops.findIndex((s) => s.stop_id === dStop.id);
+              if (fIdx < 0 || tIdx <= fIdx) continue;
+              const hops = tIdx - fIdx;
+              // Rough total-time estimate: walking ~5 km/h (12 m/min), each
+              // bus stop ~1.5 min, MTR station ~2 min.
+              const transitPerStop = route.co === "MTR" ? 2 : 1.5;
+              const walkMin = (oStop.distance + dStop.distance) / 80;
+              const total = walkMin + hops * transitPerStop;
+              const key = `${rk}_${d}`;
+              const candidate = {
+                route, dir: d,
+                board: { id: oStop.id, name: stops[fIdx].stop_name_tc || stops[fIdx].stop_name, distance: oStop.distance },
+                alight: { id: dStop.id, name: stops[tIdx].stop_name_tc || stops[tIdx].stop_name, distance: dStop.distance },
+                hops, walkMin, totalMin: total,
+              };
+              if (!byRoute.has(key) || byRoute.get(key).totalMin > total) {
+                byRoute.set(key, candidate);
+              }
+            } catch (e) { /* missing geometry: skip */ }
           }
-        } catch (e) { /* missing geometry: skip */ }
+        }
       }
     }
-    // Sort: fewest hops first, then natural by route id
-    direct.sort((a, b) =>
-      a.hops - b.hops || compareRouteIds(a.route.id, b.route.id)
+
+    const direct = [...byRoute.values()].sort((a, b) =>
+      a.totalMin - b.totalMin || compareRouteIds(a.route.id, b.route.id)
     );
     return { direct };
   }
 
-  function renderPlanResults(trips) {
+  function renderPlanResults(trips, fromEnd, toEnd) {
     const el = $("yuu-plan-results");
     if (!trips.direct.length) {
       el.innerHTML =
-        `<div class="yuu-plan-empty">No direct route between these stops. ` +
-        `<small>Interchange routing is on the way — for now try picking stops on the same bus or MTR line.</small></div>`;
+        `<div class="yuu-plan-empty">No direct route found between these endpoints.<br>` +
+        `<small>Interchange routing (one transfer) is the next planned milestone.</small></div>`;
       return;
     }
-    el.innerHTML = `<div class="yuu-plan-section-title">${trips.direct.length} direct route${trips.direct.length === 1 ? "" : "s"}</div>` +
-      trips.direct.map((t) => {
-        const rc = routeColor(t.route);
-        const opName = COMPANY_LABEL[t.route.co] || t.route.co;
-        const dirLabel = (t.dir === 1 ? t.route.de : t.route.oe) || "";
-        return `<div class="yuu-plan-card">
-          <div class="yuu-plan-card-head" style="--card-color:${rc}">
-            <span class="yuu-badge ${t.route.co}" style="background:${rc};color:#fff">${escapeHtml(t.route.id)}</span>
-            <div class="yuu-plan-card-meta">
-              <span class="yuu-plan-card-co">${escapeHtml(opName)}</span>
-              <span class="yuu-plan-card-direction">→ ${escapeHtml(displayEn(dirLabel))}</span>
-            </div>
-            <span class="yuu-plan-card-hops">${t.hops} stop${t.hops === 1 ? "" : "s"}</span>
+    const summary = `<div class="yuu-plan-section-title">${trips.direct.length} option${trips.direct.length === 1 ? "" : "s"} · sorted by total time</div>`;
+    el.innerHTML = summary + trips.direct.slice(0, 8).map((t) => {
+      const rc = routeColor(t.route);
+      const opName = COMPANY_LABEL[t.route.co] || t.route.co;
+      const dirLabel = (t.dir === 1 ? t.route.de : t.route.oe) || "";
+      const walk = Math.round(t.walkMin);
+      const totalTxt = `${Math.round(t.totalMin)} min`;
+      const walkParts = [];
+      if (t.board.distance > 50)  walkParts.push(`Walk ${Math.round(t.board.distance)} m to board`);
+      if (t.alight.distance > 50) walkParts.push(`walk ${Math.round(t.alight.distance)} m at end`);
+      const walkLine = walkParts.length ? `<div class="yuu-plan-card-walk">🚶 ${walkParts.join(" · ")}</div>` : "";
+      return `<div class="yuu-plan-card">
+        <div class="yuu-plan-card-head" style="--card-color:${rc}">
+          <span class="yuu-badge ${t.route.co}" style="background:${rc};color:#fff">${escapeHtml(t.route.id)}</span>
+          <div class="yuu-plan-card-meta">
+            <span class="yuu-plan-card-co">${escapeHtml(opName)}</span>
+            <span class="yuu-plan-card-direction">→ ${escapeHtml(displayEn(dirLabel))}</span>
           </div>
-          <div class="yuu-plan-card-body">
-            <span class="yuu-plan-card-leg">${escapeHtml(t.fromName || "")} → ${escapeHtml(t.toName || "")}</span>
-            <button type="button" class="yuu-plan-open" data-rk="${escapeHtml(t.route.rk)}" data-dir="${t.dir}">View →</button>
-          </div>
-        </div>`;
-      }).join("");
+          <span class="yuu-plan-card-hops">${escapeHtml(totalTxt)}</span>
+        </div>
+        <div class="yuu-plan-card-body">
+          <span class="yuu-plan-card-leg">${escapeHtml(t.board.name || "")} → ${escapeHtml(t.alight.name || "")} · ${t.hops} stop${t.hops === 1 ? "" : "s"}</span>
+          <button type="button" class="yuu-plan-open" data-rk="${escapeHtml(t.route.rk)}" data-dir="${t.dir}">View →</button>
+        </div>
+        ${walkLine}
+      </div>`;
+    }).join("");
     el.querySelectorAll(".yuu-plan-open").forEach((btn) => {
       btn.addEventListener("click", () => {
         const route = state.routes.find((r) => r.rk === btn.dataset.rk);
         if (!route) return;
-        // Switch back to the matching tab (Bus or MTR) before selecting.
         activateTab(route.co === "MTR" ? "mtr" : "bus");
         state.selectedDirection = Number(btn.dataset.dir) || 1;
         selectRoute(route);
