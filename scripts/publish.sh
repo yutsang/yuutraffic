@@ -135,9 +135,21 @@ if [[ "$DO_MIRROR" == "true" && -n "${YUU_PERSONAL_SITE_PATH:-}" ]]; then
     warn "YUU_PERSONAL_SITE_PATH parent '$PARENT' does not exist — skipping mirror."
   else
     mkdir -p "$TARGET"
-    log "Mirroring web/ → $TARGET"
-    rsync -a --delete --exclude='.git' "$REPO_ROOT/web/" "$TARGET/"
-    touch "$TARGET/.nojekyll"
+    log "Mirroring web/ → $TARGET (excluding index.html so a host-site wrapper is preserved)"
+    # Exclude index.html so the personal site can host its own wrapper page
+    # with its nav/footer; only assets and data are synced.
+    rsync -a --delete \
+      --exclude='.git' --exclude='index.html' \
+      "$REPO_ROOT/web/" "$TARGET/"
+    # Stamp the asset version into the wrapper if one exists.
+    if [[ -f "$TARGET/index.html" ]]; then
+      if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "s/__ASSET_VER__/${VER}/g" "$TARGET/index.html"
+      else
+        sed -i "s/__ASSET_VER__/${VER}/g" "$TARGET/index.html"
+      fi
+      ok "Updated cache-bust version in wrapper: $TARGET/index.html"
+    fi
     ok "Mirror complete. Remember to commit + push in your personal site repo."
   fi
 fi
