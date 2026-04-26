@@ -25,6 +25,12 @@
       route.pid
         ? `https://data.etagmb.gov.hk/eta/route-stop/${encodeURIComponent(route.pid)}/${encodeURIComponent(stop.stop_id)}`
         : null,
+    // MTR rail uses (line, station) — both come from the geometry stop's
+    // mtr_line / mtr_code carried over from the export step.
+    MTR: (route, stop) =>
+      stop.mtr_line && stop.mtr_code
+        ? `https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line=${encodeURIComponent(stop.mtr_line)}&sta=${encodeURIComponent(stop.mtr_code)}`
+        : null,
   };
 
   const COMPANY_LABEL = {
@@ -33,6 +39,7 @@
     GMB: "Green Minibus",
     MTRB: "MTR Bus",
     RMB: "Red Minibus",
+    MTR: "MTR Rail",
   };
 
   // Mode → set of company codes for the search filter dropdown.
@@ -518,6 +525,13 @@
       yuu.style.setProperty("--yuu-route-color", blended);
       yuu.style.setProperty("--yuu-route-color-soft", withAlpha(blended, 0.18));
       yuu.style.setProperty("--yuu-route-text", "#ffffff");
+    } else if (route.co === "MTR" && MTR_LINE_COLOR[route.id]) {
+      // MTR lines have their own brand colours — pick the line's hue.
+      const c = MTR_LINE_COLOR[route.id];
+      yuu.dataset.joint = "false";
+      yuu.style.setProperty("--yuu-route-color", c);
+      yuu.style.setProperty("--yuu-route-color-soft", withAlpha(c, 0.18));
+      yuu.style.setProperty("--yuu-route-text", "#ffffff");
     } else {
       yuu.dataset.joint = "false";
       yuu.style.removeProperty("--yuu-route-color");
@@ -791,7 +805,29 @@
       GMB: "#2a9d8f",
       MTRB: "#1d3557",
       RMB: "#d62828",
+      MTR: "#1d3557",  // generic; per-line override below
     })[co] || "#00338d";
+  }
+
+  // Each MTR rail line has its own brand colour. Used for the route polyline
+  // and the route badge when a single line is selected.
+  const MTR_LINE_COLOR = {
+    AEL: "#00888a",  // Airport Express turquoise
+    TCL: "#f7943e",  // Tung Chung orange
+    TWL: "#e2231a",  // Tsuen Wan red
+    ISL: "#0075c2",  // Island blue
+    KTL: "#00a040",  // Kwun Tong green
+    TKL: "#7e3c93",  // Tseung Kwan O purple
+    EAL: "#5eb6e4",  // East Rail light blue
+    TML: "#923011",  // Tuen Ma brown
+    SIL: "#bac429",  // South Island lime-olive
+    DRL: "#f173ac",  // Disneyland pink
+  };
+
+  function routeColor(route) {
+    if (!route) return "#00338d";
+    if (route.co === "MTR" && MTR_LINE_COLOR[route.id]) return MTR_LINE_COLOR[route.id];
+    return companyColor(route.co);
   }
 
   function renderRouteOnMap(geo) {
@@ -814,7 +850,7 @@
     const isJoint = route?.partners && route.partners.length > 1;
     const primaryColor = isJoint
       ? route.partners.map((p) => companyColor(p.co)).reduce((a, b) => blendHex(a, b))
-      : companyColor(route?.co);
+      : routeColor(route);
 
     const coords = Array.isArray(geo.coords) ? geo.coords : [];
     if (coords.length > 1) {
@@ -920,7 +956,7 @@
     }
 
     if (state.selectedStopLayer) state.map.removeLayer(state.selectedStopLayer);
-    const color = companyColor(state.selectedRoute?.co);
+    const color = routeColor(state.selectedRoute);
     if (typeof stop.lat === "number" && typeof stop.lng === "number") {
       state.selectedStopLayer = L.circleMarker([stop.lat, stop.lng], {
         radius: 10, fillColor: color,
@@ -1031,6 +1067,32 @@
   }
 
   function parseEta(company, raw) {
+    if (company === "MTR") {
+      // Response shape: data["{LINE}-{STATION}"] = { UP: [...], DOWN: [...] }
+      // Each entry has time (ISO with timezone), dest (3-letter station code),
+      // plat (platform), ttnt (minutes), valid ("Y"/"N").
+      const data = raw.data || {};
+      const out = [];
+      for (const v of Object.values(data)) {
+        if (!v || typeof v !== "object") continue;
+        for (const dirKey of ["UP", "DOWN"]) {
+          for (const e of (v[dirKey] || [])) {
+            if (!e || e.valid === "N") continue;
+            // MTR returns local HKT without TZ; pin it explicitly so
+            // browsers in other zones don't misinterpret.
+            const iso = e.time ? e.time.replace(" ", "T") + "+08:00" : null;
+            out.push({
+              eta: iso,
+              dir: dirKey === "UP" ? "U" : "D",
+              dest: e.dest,
+              plat: e.plat,
+              scheduled: false,
+            });
+          }
+        }
+      }
+      return out;
+    }
     if (company === "KMB" || company === "CTB") {
       return (raw.data || []).map((e) => ({
         eta: e.eta,
@@ -1066,6 +1128,11 @@
   }
 
   function filterEta(route, direction, stop, etas) {
+    if (route.co === "MTR") {
+      // MTR direction codes: U = up, D = down. Outbound (1) maps to U.
+      const wanted = direction === 1 ? "U" : "D";
+      return etas.filter((e) => !e.dir || e.dir === wanted);
+    }
     if (route.co === "KMB" || route.co === "CTB") {
       const wantedDir = direction === 1 ? "O" : "I";
       const wantedSeq = stop?.sequence ?? null;

@@ -24,8 +24,24 @@ DB = ROOT / "data" / "01_raw" / "kmb_data.db"
 GEO_SRC = ROOT / "data" / "02_intermediate" / "route_geometry"
 OUT = ROOT / "web" / "data"
 OUT_GEO = OUT / "geometry"
+MTR_COORDS = ROOT / "data" / "01_raw" / "mtr_station_coords.json"
+MTR_LINES_CSV_URL = "https://opendata.mtr.com.hk/data/mtr_lines_and_stations.csv"
 
 SCHEMA_VERSION = 2
+
+# MTR line code → human-readable English / Chinese name.
+MTR_LINE_NAMES = {
+    "AEL":  ("Airport Express",       "機場快綫"),
+    "TCL":  ("Tung Chung Line",       "東涌綫"),
+    "TWL":  ("Tsuen Wan Line",        "荃灣綫"),
+    "ISL":  ("Island Line",           "港島綫"),
+    "KTL":  ("Kwun Tong Line",        "觀塘綫"),
+    "TKL":  ("Tseung Kwan O Line",    "將軍澳綫"),
+    "EAL":  ("East Rail Line",        "東鐵綫"),
+    "TML":  ("Tuen Ma Line",          "屯馬綫"),
+    "SIL":  ("South Island Line",     "南港島綫"),
+    "DRL":  ("Disneyland Resort Line", "迪士尼綫"),
+}
 
 # Tokens kept as-is during title-casing — HK-specific acronyms and station
 # line codes. Any alphanumeric token containing digits is kept as well.
@@ -279,6 +295,158 @@ def _export_stops(conn: sqlite3.Connection) -> dict[str, dict]:
     }
 
 
+def _fetch_mtr_csv() -> list[dict]:
+    """Fetch the public MTR lines+stations CSV. Returns rows with keys
+    `Line Code`, `Direction` (UT/DT), `Station Code`, `Sequence`,
+    `English Name`, `Chinese Name`. Empty list on network failure (so the
+    rest of the export still completes)."""
+    import csv
+    from io import StringIO
+    try:
+        with urllib.request.urlopen(MTR_LINES_CSV_URL, timeout=30) as resp:
+            text = resp.read().decode("utf-8-sig")
+    except (urllib.error.URLError, TimeoutError) as e:
+        print(f"WARN: MTR CSV fetch failed ({e}); MTR rail will be skipped.",
+              file=sys.stderr)
+        return []
+    return list(csv.DictReader(StringIO(text)))
+
+
+def _load_mtr_coords() -> dict[str, dict]:
+    if not MTR_COORDS.exists():
+        return {}
+    return json.loads(MTR_COORDS.read_text(encoding="utf-8"))
+
+
+def _build_mtr(
+    routes: list[dict], stops: dict[str, dict],
+    stop_routes: dict[str, list[str]],
+) -> tuple[list[dict], list[Path]]:
+    """Add MTR rail routes/stations into the existing exports and return the
+    list of geometry file paths written (so the caller can include them in
+    the up-to-date set when pruning)."""
+    csv_rows = _fetch_mtr_csv()
+    if not csv_rows:
+        return [], []
+    coords = _load_mtr_coords()
+    if not coords:
+        print("WARN: data/01_raw/mtr_station_coords.json missing; "
+              "run scripts/build_mtr_coords.py to regenerate.", file=sys.stderr)
+        return [], []
+
+    # Insert station stops keyed by 'MTR_<code>' so they don't collide with
+    # bus stop_ids (which are alphanumeric hex hashes).
+    for code, c in coords.items():
+        stops[f"MTR_{code}"] = {
+            "ne": c["ne"],
+            "nt": c["nt"],
+            "la": c["la"],
+            "lg": c["lg"],
+            "co": "MTR",
+        }
+
+    # Group rows by (line, direction). Each (line, direction) is one route in
+    # routes.json; both directions share the same route_key with d=1 / d=2.
+    by_line_dir: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for r in csv_rows:
+        line = (r.get("Line Code") or "").strip()
+        bound = (r.get("Direction") or "").strip().upper()
+        # MTR uses UP/DT; some rows specify UT/DT for the few stations that
+        # only run in one direction on a particular leg. Treat anything
+        # starting with U or D as up/down.
+        if not line or not bound:
+            continue
+        d = 1 if bound.startswith("U") or bound == "UP" else 2
+        by_line_dir[(line, d)].append(r)
+
+    geo_paths: list[Path] = []
+    routes_added: dict[str, dict] = {}
+
+    for (line, d), rows in by_line_dir.items():
+        rows.sort(key=lambda x: float(x.get("Sequence") or 0))
+        if not rows:
+            continue
+        first, last = rows[0], rows[-1]
+        rk = f"MTR_{line}"
+        en, tc = MTR_LINE_NAMES.get(line, (line, line))
+        oe = first.get("English Name", "")
+        de = last.get("English Name", "")
+        ot = first.get("Chinese Name", "")
+        dt = last.get("Chinese Name", "")
+
+        if rk not in routes_added:
+            routes_added[rk] = {
+                "rk": rk,
+                "id": line,
+                "co": "MTR",
+                "st": 1,
+                "pid": "",
+                "oe": _title_case_en(en),
+                "de": "",
+                "ot": tc,
+                "dt": "",
+                "dirs": [],
+            }
+        entry = routes_added[rk]
+        if d not in entry["dirs"]:
+            entry["dirs"].append(d)
+            entry["dirs"].sort()
+        # Direction 1's origin/dest become the "outbound" terminus pair.
+        if d == 1:
+            entry["oe"] = _title_case_en(oe)
+            entry["de"] = _title_case_en(de)
+            entry["ot"] = ot
+            entry["dt"] = dt
+
+        # Geometry: list of station stops + a polyline that just connects
+        # them in order. No OSRM routing for trains — they don't follow
+        # roads anyway.
+        geo_stops = []
+        coords_line = []
+        for i, r in enumerate(rows, start=1):
+            code = (r.get("Station Code") or "").strip()
+            sc = coords.get(code, {})
+            if not sc:
+                continue
+            geo_stops.append({
+                "stop_id": f"MTR_{code}",
+                "stop_name": _title_case_en(r.get("English Name", "")),
+                "stop_name_tc": r.get("Chinese Name", ""),
+                "sequence": i,
+                "company": "MTR",
+                "lat": sc["la"],
+                "lng": sc["lg"],
+                # Carry the raw 3-letter code so the client can build the
+                # MTR ETA URL without remapping.
+                "mtr_code": code,
+                "mtr_line": line,
+            })
+            coords_line.append([sc["la"], sc["lg"]])
+
+        # Update reverse index so 'Near me' can return MTR routes too.
+        for s in geo_stops:
+            stop_routes.setdefault(s["stop_id"], []).append(rk)
+
+        # Write geometry file.
+        out_path = OUT_GEO / f"{rk}_{d}.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps({
+                "route_key": rk,
+                "direction": d,
+                "company": "MTR",
+                "line": line,
+                "stops": geo_stops,
+                "coords": coords_line,
+            }, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        geo_paths.append(out_path)
+
+    routes.extend(routes_added.values())
+    return list(routes_added.values()), geo_paths
+
+
 def _export_stop_routes(conn: sqlite3.Connection) -> dict[str, list[str]]:
     """For each stop_id, the list of route_keys serving it.
 
@@ -345,16 +513,10 @@ def main() -> int:
         stops = _export_stops(conn)
         stop_routes = _export_stop_routes(conn)
 
-    _write_json(OUT / "routes.json", routes)
-    _write_json(OUT / "stops.json", stops)
-    _write_json(OUT / "stop_routes.json", stop_routes)
-
     copied = 0
+    fresh: set[str] = set()
     if GEO_SRC.exists():
-        existing = {p.name for p in OUT_GEO.glob("*.json")}
         for src in GEO_SRC.glob("*.json"):
-            # Read-modify-write instead of shutil.copy2 so we can title-case
-            # stop_name while we're at it. Pretty-printing is skipped for size.
             with open(src, encoding="utf-8") as f:
                 g = json.load(f)
             for s in g.get("stops", []) or []:
@@ -362,10 +524,23 @@ def main() -> int:
                     s["stop_name"] = _title_case_en(s["stop_name"])
             with open(OUT_GEO / src.name, "w", encoding="utf-8") as f:
                 json.dump(g, f, ensure_ascii=False, separators=(",", ":"))
-            existing.discard(src.name)
+            fresh.add(src.name)
             copied += 1
-        for stale in existing:
-            (OUT_GEO / stale).unlink(missing_ok=True)
+
+    # MTR rail (added after bus geometry so its files survive the prune below).
+    mtr_routes, mtr_paths = _build_mtr(routes, stops, stop_routes)
+    for p in mtr_paths:
+        fresh.add(p.name)
+
+    _write_json(OUT / "routes.json", routes)
+    _write_json(OUT / "stops.json", stops)
+    _write_json(OUT / "stop_routes.json", stop_routes)
+
+    # Prune any files no longer regenerated this run.
+    OUT_GEO.mkdir(parents=True, exist_ok=True)
+    for p in OUT_GEO.glob("*.json"):
+        if p.name not in fresh:
+            p.unlink(missing_ok=True)
 
     _write_json(
         OUT / "meta.json",
@@ -376,7 +551,8 @@ def main() -> int:
                 "routes": len(routes),
                 "stops": len(stops),
                 "stop_routes": len(stop_routes),
-                "geometry": copied,
+                "geometry": copied + len(mtr_paths),
+                "mtr_lines": len(mtr_routes),
             },
         },
     )
