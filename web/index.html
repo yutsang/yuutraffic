@@ -67,9 +67,22 @@
         <button class="yuu-mtr-toggle-btn active" data-mtr-mode="diagram" type="button">Diagram</button>
         <button class="yuu-mtr-toggle-btn"        data-mtr-mode="map"     type="button">Map</button>
       </div>
-      <div id="yuu-mtr-lines" class="yuu-mtr-lines" role="tablist"></div>
-      <div id="yuu-mtr-line-detail" class="yuu-mtr-line-detail"></div>
+
+      <div id="yuu-mtr-diagram" class="yuu-mtr-diagram">
+        <div class="yuu-mtr-diagram-form">
+          <div class="yuu-plan-input-wrap">
+            <input type="search" id="yuu-mtr-from-input" autocomplete="off" spellcheck="false" placeholder="From station / 起點">
+            <div class="yuu-plan-suggest" id="yuu-mtr-from-suggest" hidden></div>
+          </div>
+          <div class="yuu-plan-input-wrap">
+            <input type="search" id="yuu-mtr-to-input" autocomplete="off" spellcheck="false" placeholder="To station / 終點">
+            <div class="yuu-plan-suggest" id="yuu-mtr-to-suggest" hidden></div>
+          </div>
+        </div>
+      </div>
+
       <div id="yuu-mtr-map" class="yuu-mtr-map" hidden></div>
+
       <div id="yuu-mtr-journey" class="yuu-mtr-journey" hidden>
         <div class="yuu-mtr-journey-form">
           <div class="yuu-mtr-journey-end" data-which="from">

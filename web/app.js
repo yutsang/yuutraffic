@@ -328,14 +328,15 @@
     if (planSec) planSec.hidden = true;
 
     if (tab === "mtr") {
-      // Dedicated MTR view: line chips + station diagram, no map / search.
+      // Dedicated MTR view: from/to diagram form + map sub-mode.
       if (explore) explore.hidden = true;
       if (welcome) welcome.hidden = true;
       if (route)   route.hidden   = true;
       if (map)     map.hidden     = true;
       if (mtrView) mtrView.hidden = false;
-      ensureMtrLinesRendered();
-      stopMtrEtaPolling();
+      // Topology must be loaded for the shortest-path planner to run even
+      // before the user opens the Map sub-tab.
+      ensureMtrTopologyLoaded().catch(() => {});
       return;
     }
 
@@ -344,7 +345,6 @@
     if (map)     map.hidden     = false;
     if (explore) explore.hidden = false;
     if (sel)     sel.style.display = (tab === "bus") ? "" : "none";
-    stopMtrEtaPolling();
 
     // Refresh the visible content depending on whether a route is selected
     // and whether it belongs to the active tab.
@@ -369,12 +369,10 @@
 
   // ============================================================ MTR View
   // Two presentations:
-  //   - Diagram: scrollable line chips + vertical station list per line.
+  //   - Diagram: From / To search → planned route with leg ETAs.
   //   - Map:     full Leaflet map of the network, click any station for
   //              ETAs across all lines that serve it + Set as From/To.
 
-  let mtrEtaTimer = null;
-  let activeMtrStationEl = null;
   let mtrMap = null;
   let mtrPolylineLayer = null;     // Leaflet layer group for the chosen
                                     // journey overlay (cleared between plans).
@@ -391,16 +389,80 @@
     $("yuu-mtr-clear")?.addEventListener("click", () => {
       mtrJourney.from = null;
       mtrJourney.to = null;
+      const fi = $("yuu-mtr-from-input"); if (fi) fi.value = "";
+      const ti = $("yuu-mtr-to-input");   if (ti) ti.value = "";
       renderMtrJourneyForm();
       $("yuu-mtr-journey-result").innerHTML = "";
-      if (mtrPolylineLayer) {
-        mtrPolylineLayer.clearLayers();
-      }
+      if (mtrPolylineLayer) mtrPolylineLayer.clearLayers();
     });
     $("yuu-mtr-swap")?.addEventListener("click", () => {
       const t = mtrJourney.from; mtrJourney.from = mtrJourney.to; mtrJourney.to = t;
+      const fi = $("yuu-mtr-from-input");
+      const ti = $("yuu-mtr-to-input");
+      if (fi && ti) { const v = fi.value; fi.value = ti.value; ti.value = v; }
       renderMtrJourneyForm();
       maybePlanMtrJourney();
+    });
+
+    // Diagram-mode From / To autocomplete: searches MTR stations only.
+    setupMtrStationAutocomplete($("yuu-mtr-from-input"), $("yuu-mtr-from-suggest"), "from");
+    setupMtrStationAutocomplete($("yuu-mtr-to-input"),   $("yuu-mtr-to-suggest"),   "to");
+  }
+
+  // Station autocomplete restricted to the 97 MTR stations. The mtrStationLines
+  // map is populated when ensureMtrMapRendered runs, but for the diagram
+  // form we want it populated even before the map opens — kick it off
+  // lazily on first input focus.
+  function setupMtrStationAutocomplete(input, suggest, which) {
+    if (!input || !suggest) return;
+    let timer = null;
+    const run = (q) => {
+      const stops = state.stops || {};
+      const query = (q || "").trim();
+      if (query.length < 1) { suggest.hidden = true; return; }
+      const lower = query.toLowerCase();
+      const matches = [];
+      for (const [id, s] of Object.entries(stops)) {
+        if (!id.startsWith("MTR_")) continue;
+        if (matches.length >= 12) break;
+        const code = id.slice(4);
+        const ne = (s.ne || "").toLowerCase();
+        const nt = s.nt || "";
+        if (code.toLowerCase().includes(lower) || ne.includes(lower) || nt.includes(query)) {
+          matches.push({ code, ...s });
+        }
+      }
+      if (matches.length === 0) {
+        suggest.innerHTML = `<div class="yuu-plan-suggest-empty">No matching stations</div>`;
+        suggest.hidden = false;
+        return;
+      }
+      suggest.innerHTML = matches.map((m) => `
+        <div class="yuu-plan-suggest-item" data-code="${escapeHtml(m.code)}"
+             data-display="${escapeHtml(m.nt || m.ne || m.code)}">
+          <span class="yuu-plan-suggest-tc">${escapeHtml(m.nt || m.ne || m.code)}</span>
+          <span class="yuu-plan-suggest-en">${escapeHtml(m.ne)} · ${escapeHtml(m.code)}</span>
+        </div>`).join("");
+      suggest.hidden = false;
+      suggest.querySelectorAll(".yuu-plan-suggest-item").forEach((el) => {
+        el.addEventListener("click", () => {
+          input.value = el.dataset.display;
+          mtrJourney[which] = { code: el.dataset.code, name: el.dataset.display };
+          suggest.hidden = true;
+          renderMtrJourneyForm();
+          maybePlanMtrJourney();
+        });
+      });
+    };
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => run(input.value), 100);
+    });
+    input.addEventListener("focus", () => {
+      ensureStopsLoaded().then(() => { if (input.value.trim()) run(input.value); });
+    });
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest(".yuu-plan-input-wrap")) suggest.hidden = true;
     });
   }
 
@@ -500,15 +562,21 @@
     return null;
   }
 
+  // Estimated walking-transfer minutes between two MTR lines at the same
+  // station. Hong Kong's biggest interchanges (Admiralty, Mong Kok, Nam
+  // Cheong, Tsim Sha Tsui ↔ East Tsim Sha Tsui) are slower than typical.
+  const MTR_TRANSFER_OVERRIDES = {
+    ADM: 4, NAC: 4, MOK: 5, KOT: 4, PRE: 4, HOK: 4, CEN: 4,
+    TST: 5, ETS: 5, HUH: 4, SHT: 3, TIK: 3, YAT: 3,
+  };
+
   function renderMtrJourneyResult(result) {
-    // Group consecutive same-line nodes into legs; an interchange is the
-    // boundary where the line changes between two same-station nodes.
     const legs = [];
     let cur = null;
     for (const node of result.path) {
       const [code, line] = node.split("|");
       if (!cur || cur.line !== line) {
-        if (cur) cur.toCode = code; // interchange: stay at same station
+        if (cur) cur.toCode = code;
         cur = { line, fromCode: code, toCode: code, hops: 0 };
         legs.push(cur);
       } else {
@@ -516,7 +584,6 @@
         cur.hops++;
       }
     }
-    // Drop zero-hop trailing leg (artifact of interchange node sharing).
     while (legs.length > 1 && legs[legs.length - 1].hops === 0) legs.pop();
 
     const stops = state.stops || {};
@@ -524,24 +591,101 @@
       const s = stops[`MTR_${code}`];
       return s ? (s.nt || s.ne) : code;
     };
-    const totalMin = result.totalMin;
-    const html = `<div class="yuu-mtr-journey-summary">
-        <strong>${Math.round(totalMin)} min</strong>
-        <span> · ${legs.length} ${legs.length === 1 ? "leg" : "legs"}</span>
-      </div>
-      <ol class="yuu-mtr-legs">
-        ${legs.map((leg) => {
-          const c = MTR_LINE_COLOR[leg.line] || "#1d3557";
-          return `<li class="yuu-mtr-leg" style="--c:${c}">
-            <span class="yuu-mtr-leg-line" style="background:${c}">${escapeHtml(leg.line)}</span>
-            <div>
-              <div class="yuu-mtr-leg-label">${escapeHtml(stationName(leg.fromCode))} → ${escapeHtml(stationName(leg.toCode))}</div>
-              <div class="yuu-mtr-leg-hops">${leg.hops} station${leg.hops === 1 ? "" : "s"}</div>
-            </div>
-          </li>`;
-        }).join("")}
-      </ol>`;
-    $("yuu-mtr-journey-result").innerHTML = html;
+
+    // Build the leg / transfer interleaved item list. Transfers are inserted
+    // BETWEEN consecutive legs whose .fromCode (current leg) === previous
+    // leg's .toCode (interchange at the same station).
+    const items = [];
+    for (let i = 0; i < legs.length; i++) {
+      items.push({ kind: "leg", leg: legs[i] });
+      if (i < legs.length - 1) {
+        const transferAt = legs[i].toCode;
+        items.push({
+          kind: "transfer",
+          atCode: transferAt,
+          minutes: MTR_TRANSFER_OVERRIDES[transferAt] ?? 4,
+        });
+      }
+    }
+
+    // Render head + leg list. First leg gets an ETA placeholder that we
+    // populate asynchronously.
+    const head = `<div class="yuu-mtr-journey-summary">
+      <strong>${Math.round(result.totalMin)} min</strong>
+      <span> · ${legs.length} ${legs.length === 1 ? "leg" : "legs"}</span>
+    </div>`;
+
+    const body = items.map((it, idx) => {
+      if (it.kind === "leg") {
+        const leg = it.leg;
+        const c = MTR_LINE_COLOR[leg.line] || "#1d3557";
+        const isFirst = idx === 0;
+        const etaSpan = isFirst
+          ? `<div class="yuu-mtr-leg-eta" id="yuu-mtr-leg-eta-0">Loading next train…</div>`
+          : "";
+        return `<li class="yuu-mtr-leg" style="--c:${c}">
+          <span class="yuu-mtr-leg-line" style="background:${c}">${escapeHtml(leg.line)}</span>
+          <div class="yuu-mtr-leg-body">
+            <div class="yuu-mtr-leg-label">${escapeHtml(stationName(leg.fromCode))} → ${escapeHtml(stationName(leg.toCode))}</div>
+            <div class="yuu-mtr-leg-hops">${leg.hops} station${leg.hops === 1 ? "" : "s"} · ~${leg.hops * 2} min</div>
+            ${etaSpan}
+          </div>
+        </li>`;
+      }
+      // transfer
+      return `<li class="yuu-mtr-transfer">
+        <span class="yuu-mtr-transfer-icon">⇅</span>
+        <span>Transfer at <strong>${escapeHtml(stationName(it.atCode))}</strong> · ~${it.minutes} min</span>
+      </li>`;
+    }).join("");
+
+    $("yuu-mtr-journey-result").innerHTML = head + `<ol class="yuu-mtr-legs">${body}</ol>`;
+    // Async-load first-leg ETA so the user sees "next train" specifically
+    // for the boarding station + line + direction they're about to take.
+    populateFirstLegEta(legs[0]).catch((e) => console.warn(e));
+  }
+
+  // Determine which platform direction the leg is going (UP or DOWN) by
+  // checking the relative ordering of from/to in the line's station array,
+  // then call the MTR schedule API and surface the next 2 trains.
+  async function populateFirstLegEta(leg) {
+    if (!leg) return;
+    const ordered = mtrStationsByLine.get(leg.line) || [];
+    const fIdx = ordered.indexOf(leg.fromCode);
+    const tIdx = ordered.indexOf(leg.toCode);
+    let want;
+    if (fIdx < 0 || tIdx < 0) want = null;
+    else want = (tIdx > fIdx) ? "DOWN" : "UP";  // CSV defines UP as the
+                                                  // direction toward sequence 1
+    try {
+      const raw = await fetchJson(
+        `https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line=${encodeURIComponent(leg.line)}&sta=${encodeURIComponent(leg.fromCode)}`,
+        { cache: "no-store" }
+      );
+      const v = (raw.data && raw.data[`${leg.line}-${leg.fromCode}`]) || {};
+      const trains = ((want && v[want]) || v.UP || v.DOWN || [])
+        .filter((e) => e.valid !== "N").slice(0, 2);
+      const stops = state.stops || {};
+      const fmt = (e) => {
+        const iso = e.time ? e.time.replace(" ", "T") + "+08:00" : null;
+        const m = iso ? Math.round((new Date(iso).getTime() - Date.now()) / 60_000) : null;
+        const label = m == null ? "—" : m <= 0 ? "Now" : (m === 1 ? "1 min" : `${m} min`);
+        const dest = e.dest && stops["MTR_" + e.dest]
+          ? (stops["MTR_" + e.dest].nt || stops["MTR_" + e.dest].ne)
+          : (e.dest || "");
+        const plat = e.plat ? `P${e.plat}` : "";
+        return `<span class="yuu-mtr-eta-pill">${escapeHtml(label)} ${escapeHtml(plat)}<small>→ ${escapeHtml(dest)}</small></span>`;
+      };
+      const target = $("yuu-mtr-leg-eta-0");
+      if (target) {
+        target.innerHTML = trains.length
+          ? `<span class="yuu-mtr-leg-eta-label">Next train</span>${trains.map(fmt).join("")}`
+          : `<span class="yuu-mtr-leg-eta-empty">No upcoming trains</span>`;
+      }
+    } catch {
+      const target = $("yuu-mtr-leg-eta-0");
+      if (target) target.innerHTML = `<span class="yuu-mtr-leg-eta-empty">ETA unavailable</span>`;
+    }
   }
 
   function drawMtrJourneyOnMap(result) {
@@ -568,15 +712,43 @@
       b.classList.toggle("active", b.dataset.mtrMode === mode)
     );
     const showMap = mode === "map";
-    $("yuu-mtr-lines").hidden        = showMap;
-    $("yuu-mtr-line-detail").hidden  = showMap;
-    $("yuu-mtr-map").hidden          = !showMap;
-    $("yuu-mtr-journey").hidden      = !(showMap && (mtrJourney.from || mtrJourney.to));
+    $("yuu-mtr-diagram").hidden = showMap;
+    $("yuu-mtr-map").hidden     = !showMap;
     if (showMap) {
-      stopMtrEtaPolling();
       ensureMtrMapRendered();
-      renderMtrJourneyForm();
     }
+    renderMtrJourneyForm();
+  }
+
+  // Loads the full MTR topology (per-line station ordering + each station's
+  // line memberships) so the diagram-mode shortest-path planner can run
+  // even when the user never opens the Map sub-tab. Cached and idempotent.
+  let mtrTopologyPromise = null;
+  function ensureMtrTopologyLoaded() {
+    if (mtrTopologyPromise) return mtrTopologyPromise;
+    mtrTopologyPromise = (async () => {
+      const lines = state.routes.filter((r) => r.co === "MTR");
+      const geos = await Promise.all(lines.map((line) =>
+        fetchJson(`${DATA_BASE}/geometry/${line.rk}_1.json`).catch(() => null)
+      ));
+      geos.forEach((geo, i) => {
+        const line = lines[i];
+        if (!geo) return;
+        const ordered = [];
+        for (const s of (geo.stops || [])) {
+          const code = s.mtr_code;
+          if (!code) continue;
+          if (!mtrStationLines.has(code)) mtrStationLines.set(code, new Set());
+          mtrStationLines.get(code).add(line.id);
+          ordered.push(code);
+        }
+        mtrStationsByLine.set(line.id, ordered);
+      });
+      // Cache the geometries so the map render avoids a second round-trip.
+      mtrTopologyPromise._geos = geos;
+      mtrTopologyPromise._lines = lines;
+    })();
+    return mtrTopologyPromise;
   }
 
   async function ensureMtrMapRendered() {
@@ -598,14 +770,12 @@
       bounds: HK_BOUNDS,
     }).addTo(mtrMap);
 
-    const stops = await ensureStopsLoaded();
-    const lines = state.routes.filter((r) => r.co === "MTR");
-
-    // Parallel fetch of every line's geometry. Sequential fetching took
-    // ~3 s on slow connections; Promise.all completes in one round-trip.
-    const geos = await Promise.all(lines.map((line) =>
-      fetchJson(`${DATA_BASE}/geometry/${line.rk}_1.json`).catch(() => null)
-    ));
+    const [stops] = await Promise.all([
+      ensureStopsLoaded(),
+      ensureMtrTopologyLoaded(),
+    ]);
+    const lines = mtrTopologyPromise._lines || state.routes.filter((r) => r.co === "MTR");
+    const geos  = mtrTopologyPromise._geos  || [];
 
     geos.forEach((geo, i) => {
       const line = lines[i];
@@ -617,15 +787,6 @@
       if (coords.length > 1) {
         L.polyline(coords, { color: c, weight: 4, opacity: 0.85 }).addTo(mtrMap);
       }
-      const ordered = [];
-      for (const s of (geo.stops || [])) {
-        const code = s.mtr_code;
-        if (!code) continue;
-        if (!mtrStationLines.has(code)) mtrStationLines.set(code, new Set());
-        mtrStationLines.get(code).add(line.id);
-        ordered.push(code);
-      }
-      mtrStationsByLine.set(line.id, ordered);
     });
 
     mtrStationLines.forEach((lineSet, code) => {
@@ -740,156 +901,6 @@
     } catch (e) {
       const root = document.getElementById(popupId);
       if (root) root.querySelector(".yuu-mtr-popup-eta").textContent = "ETA unavailable";
-    }
-  }
-
-  function ensureMtrLinesRendered() {
-    const host = $("yuu-mtr-lines");
-    if (!host || host.dataset.rendered === "true") return;
-    const lines = state.routes.filter((r) => r.co === "MTR");
-    if (lines.length === 0) {
-      host.innerHTML = `<div class="yuu-search-empty">Loading lines…</div>`;
-      return;
-    }
-    lines.sort((a, b) => a.id.localeCompare(b.id));
-    host.innerHTML = lines.map((r) => {
-      const c = MTR_LINE_COLOR[r.id] || "#1d3557";
-      return `<button type="button" class="yuu-mtr-line-chip"
-                      data-rk="${escapeHtml(r.rk)}"
-                      title="${escapeHtml((r.oe || "") + " ↔ " + (r.de || ""))}"
-                      style="--c:${c}; background:${c}">
-        ${escapeHtml(r.id)}
-      </button>`;
-    }).join("");
-    host.dataset.rendered = "true";
-    host.querySelectorAll(".yuu-mtr-line-chip").forEach((btn) => {
-      btn.addEventListener("click", () => selectMtrLine(btn.dataset.rk));
-    });
-    // Auto-pick the first line so the user lands on something visible.
-    const first = lines[0];
-    if (first) selectMtrLine(first.rk);
-  }
-
-  async function selectMtrLine(rk) {
-    document.querySelectorAll(".yuu-mtr-line-chip").forEach((b) =>
-      b.classList.toggle("active", b.dataset.rk === rk)
-    );
-    const route = state.routes.find((r) => r.rk === rk);
-    if (!route) return;
-    state.selectedMtrLine = route;
-    stopMtrEtaPolling();
-    activeMtrStationEl = null;
-    const detail = $("yuu-mtr-line-detail");
-    detail.innerHTML = `<div class="yuu-mtr-eta-loading">Loading line…</div>`;
-    try {
-      // Lazy-load stops.json once so train destination 3-letter codes
-      // can be resolved into station names in pollMtrStationEta.
-      ensureStopsLoaded().catch(() => {});
-      const geo = await fetchJson(`${DATA_BASE}/geometry/${rk}_1.json`);
-      renderMtrLineDetail(route, geo);
-    } catch (err) {
-      detail.innerHTML = `<div class="yuu-search-empty">Could not load this line.</div>`;
-    }
-  }
-
-  function renderMtrLineDetail(route, geo) {
-    const detail = $("yuu-mtr-line-detail");
-    const c = MTR_LINE_COLOR[route.id] || "#1d3557";
-    const stations = geo.stops || [];
-    const oe = displayEn(route.oe || "");
-    const de = displayEn(route.de || "");
-    const head = `
-      <div class="yuu-mtr-line-title" style="background:${c}">
-        <div class="yuu-mtr-line-id">${escapeHtml(route.id)}</div>
-        <div class="yuu-mtr-line-names">
-          <div>${escapeHtml(oe)} ↔ ${escapeHtml(de)}</div>
-          ${(route.ot && route.dt)
-            ? `<div class="yuu-mtr-line-tc">${escapeHtml(route.ot)} ↔ ${escapeHtml(route.dt)}</div>`
-            : ""}
-        </div>
-      </div>`;
-    const rows = stations.map((s) => `
-      <div class="yuu-mtr-station"
-           data-line="${escapeHtml(s.mtr_line || route.id)}"
-           data-station="${escapeHtml(s.mtr_code || "")}">
-        <div class="yuu-mtr-station-row">
-          <div class="yuu-mtr-station-name">${escapeHtml(s.stop_name_tc || "")}</div>
-          <div class="yuu-mtr-station-en">${escapeHtml(displayEn(s.stop_name) || s.mtr_code || "")}</div>
-        </div>
-        <div class="yuu-mtr-station-eta" hidden></div>
-      </div>`).join("");
-    detail.innerHTML = head + `<div class="yuu-mtr-stations" style="--line-color:${c}">${rows}</div>`;
-    detail.querySelectorAll(".yuu-mtr-station").forEach((el) => {
-      el.addEventListener("click", () => selectMtrStation(el));
-    });
-  }
-
-  async function selectMtrStation(el) {
-    bumpActivity();
-    if (activeMtrStationEl && activeMtrStationEl !== el) {
-      activeMtrStationEl.classList.remove("active");
-      const old = activeMtrStationEl.querySelector(".yuu-mtr-station-eta");
-      if (old) old.hidden = true;
-    } else if (activeMtrStationEl === el) {
-      // Re-tap → just refresh
-      pollMtrStationEta();
-      return;
-    }
-    el.classList.add("active");
-    const eta = el.querySelector(".yuu-mtr-station-eta");
-    if (eta) {
-      eta.hidden = false;
-      eta.innerHTML = `<div class="yuu-mtr-eta-loading">Loading…</div>`;
-    }
-    activeMtrStationEl = el;
-    stopMtrEtaPolling();
-    await pollMtrStationEta();
-    mtrEtaTimer = setInterval(pollMtrStationEta, 15_000);
-  }
-
-  function stopMtrEtaPolling() {
-    if (mtrEtaTimer) { clearInterval(mtrEtaTimer); mtrEtaTimer = null; }
-  }
-
-  async function pollMtrStationEta() {
-    if (!activeMtrStationEl) return;
-    if (document.hidden) return;
-    const code = activeMtrStationEl.dataset.station;
-    const line = activeMtrStationEl.dataset.line;
-    const eta  = activeMtrStationEl.querySelector(".yuu-mtr-station-eta");
-    if (!code || !line || !eta) return;
-    try {
-      const raw = await fetchJson(
-        `https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line=${encodeURIComponent(line)}&sta=${encodeURIComponent(code)}`,
-        { cache: "no-store" }
-      );
-      const v = (raw.data && raw.data[`${line}-${code}`]) || {};
-      const stops = state.stops || {};
-      const fmt = (e) => {
-        const iso = e.time ? e.time.replace(" ", "T") + "+08:00" : null;
-        const mins = iso ? Math.round((new Date(iso).getTime() - Date.now()) / 60_000) : null;
-        const label = (mins == null) ? "—"
-                    : mins <= 0     ? "Now"
-                    : mins === 1    ? "1 min"
-                    : `${mins} min`;
-        const destInfo = e.dest ? stops["MTR_" + e.dest] : null;
-        const dest = destInfo ? (destInfo.nt || destInfo.ne) : (e.dest || "");
-        const plat = e.plat ? `<small>P${escapeHtml(e.plat)}</small>` : "";
-        return `<span class="yuu-mtr-eta-pill">${escapeHtml(label)} ${plat}<small>→ ${escapeHtml(dest)}</small></span>`;
-      };
-      const ups = (v.UP || []).filter((e) => e.valid !== "N").slice(0, 4);
-      const dns = (v.DOWN || []).filter((e) => e.valid !== "N").slice(0, 4);
-      let html = "";
-      if (ups.length) {
-        html += `<div class="yuu-mtr-eta-row"><span class="yuu-mtr-eta-label">↑ UP</span>${ups.map(fmt).join("")}</div>`;
-      }
-      if (dns.length) {
-        html += `<div class="yuu-mtr-eta-row"><span class="yuu-mtr-eta-label">↓ DOWN</span>${dns.map(fmt).join("")}</div>`;
-      }
-      if (!html) html = `<div class="yuu-mtr-eta-empty">No upcoming trains</div>`;
-      eta.innerHTML = html;
-    } catch (err) {
-      eta.innerHTML = `<div class="yuu-mtr-eta-empty">Could not fetch ETA — try again.</div>`;
     }
   }
 
