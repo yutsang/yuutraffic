@@ -25,15 +25,11 @@
 <div id="yuu" class="yuu-widget">
   <header class="yuu-header">
     <h1 class="yuu-title" hidden>Traffic</h1>
-    <div class="yuu-region-switch" role="tablist" aria-label="Region">
-      <button type="button" class="yuu-region active" data-region="hk" role="tab" aria-selected="true">HK 香港</button>
-      <button type="button" class="yuu-region"        data-region="mo" role="tab" aria-selected="false">澳門 Macau</button>
-    </div>
     <div class="yuu-mode-tabs" role="tablist">
-      <button type="button" class="yuu-tab active" data-tab="bus"     data-region="hk"  role="tab" aria-selected="true">Bus</button>
-      <button type="button" class="yuu-tab"        data-tab="mtr"     data-region="hk"  role="tab" aria-selected="false">MTR</button>
-      <button type="button" class="yuu-tab"        data-tab="momap"   data-region="mo"  role="tab" aria-selected="false" hidden>Map 地圖</button>
-      <button type="button" class="yuu-tab"        data-tab="plan"    data-region="any" role="tab" aria-selected="false">Plan</button>
+      <button type="button" class="yuu-tab active" data-tab="bus"   role="tab" aria-selected="true">HK Bus</button>
+      <button type="button" class="yuu-tab"        data-tab="mtr"   role="tab" aria-selected="false">MTR</button>
+      <button type="button" class="yuu-tab"        data-tab="momap" role="tab" aria-selected="false">Macau 澳門</button>
+      <button type="button" class="yuu-tab"        data-tab="plan"  role="tab" aria-selected="false">Plan</button>
     </div>
     <div class="yuu-search" id="yuu-explore-controls">
       <input type="search"
@@ -72,7 +68,8 @@
         <label class="yuu-momap-chk"><input type="checkbox" data-layer="MOB"  checked> MOBus</label>
         <label class="yuu-momap-chk"><input type="checkbox" data-layer="LRT"  checked> 輕軌 LRT</label>
         <label class="yuu-momap-chk"><input type="checkbox" data-layer="MOSC" checked> 財車 Shuttle</label>
-        <span class="yuu-momap-hint">Click a route to drill in. Zoom in for more stops.</span>
+        <label class="yuu-momap-chk yuu-momap-chk-routes"><input type="checkbox" data-toggle="lines"> Show routes</label>
+        <span class="yuu-momap-hint">Tap a stop to see what serves it. Zoom in for more.</span>
       </div>
       <div id="yuu-momap" class="yuu-momap" aria-label="Macau network map"></div>
       <div id="yuu-momap-detail" class="yuu-momap-detail" hidden></div>

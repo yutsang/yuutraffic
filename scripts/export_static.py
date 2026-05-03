@@ -32,6 +32,32 @@ MTR_LINES_CSV_URL = "https://opendata.mtr.com.hk/data/mtr_lines_and_stations.csv
 MACAU_LRT      = ROOT / "data" / "01_raw" / "macau_lrt.json"
 MACAU_BUS      = ROOT / "data" / "01_raw" / "macau_bus.json"
 MACAU_SHUTTLES = ROOT / "data" / "01_raw" / "macau_shuttles.json"
+# Optional precomputed road-following polylines from scripts/build_macau_geometry.py.
+MACAU_GEO_DIR  = ROOT / "data" / "02_intermediate" / "macau_route_geometry"
+
+
+def _load_macau_prebuilt(rk: str) -> list[list[float]] | None:
+    """Return precomputed [[lat, lng], ...] for ``{rk}_1.json`` if valid, else None."""
+    p = MACAU_GEO_DIR / f"{rk}_1.json"
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    coords = data.get("coords")
+    if not isinstance(coords, list) or len(coords) < 2:
+        return None
+    out: list[list[float]] = []
+    for pt in coords:
+        if (
+            isinstance(pt, (list, tuple))
+            and len(pt) >= 2
+            and isinstance(pt[0], (int, float))
+            and isinstance(pt[1], (int, float))
+        ):
+            out.append([float(pt[0]), float(pt[1])])
+    return out if len(out) >= 2 else None
 
 SCHEMA_VERSION = 2
 
@@ -682,6 +708,10 @@ def _build_macau_bus(
             coords_line.append([float(s["la"]), float(s["lg"])])
             stop_routes.setdefault(sid, []).append(rk)
 
+        prebuilt = _load_macau_prebuilt(rk)
+        if prebuilt:
+            coords_line = prebuilt
+
         out_path = OUT_GEO / f"{rk}_1.json"
         out_path.write_text(
             json.dumps({
@@ -760,6 +790,9 @@ def _build_macau_shuttles(
             [float(from_s["la"]), float(from_s["lg"])],
             [float(to_s["la"]),   float(to_s["lg"])],
         ]
+        prebuilt = _load_macau_prebuilt(rk)
+        if prebuilt:
+            coords_line = prebuilt
         stop_routes.setdefault(f"MOSC_{from_code}", []).append(rk)
         stop_routes.setdefault(f"MOSC_{to_code}",   []).append(rk)
 
