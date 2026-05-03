@@ -221,6 +221,129 @@
     return 2 * R * Math.asin(Math.sqrt(a));
   }
 
+  // ============================================================ Shuttle view
+  // 財車 hub-first flow. The user picks a transit hub (Border Gate, OHFT,
+  // TFT, Airport, HZMB) and we list every casino shuttle that touches it
+  // — sorted by next departure. Picking a row drills into the standard
+  // route view (state.selectedRoute = …) so the user sees the polyline +
+  // schedule chips on the main map.
+
+  let shuttleWired = false;
+  let activeShuttleHub = null;
+  function ensureShuttleViewWired() {
+    if (shuttleWired) return;
+    shuttleWired = true;
+    document.querySelectorAll(".yuu-hub-btn").forEach((btn) => {
+      btn.addEventListener("click", () => selectShuttleHub(btn.dataset.hub, btn.dataset.stop));
+    });
+  }
+
+  function selectShuttleHub(hubCode, stopId) {
+    activeShuttleHub = hubCode;
+    document.querySelectorAll(".yuu-hub-btn").forEach((b) =>
+      b.classList.toggle("active", b.dataset.hub === hubCode)
+    );
+    const host = $("yuu-shuttle-routes");
+    if (!host) return;
+
+    // Routes that touch the hub: from === stopId OR to === stopId. We
+    // don't have raw from/to ids on the route record, so match by stop
+    // name (oe / de == hub name) — every shuttle has the hub on one end.
+    const HUB_NAMES = {
+      OHFT: ["Outer Harbour Ferry Terminal", "外港客運碼頭"],
+      TFT:  ["Taipa Ferry Terminal", "氹仔客運碼頭"],
+      BG:   ["Border Gate (Portas Do Cerco)", "關閘"],
+      AIR:  ["Macau International Airport", "澳門國際機場"],
+      HZMB: ["HZMB Macau Port", "港珠澳大橋澳門口岸"],
+    };
+    const [hubEn, hubTc] = HUB_NAMES[hubCode] || [];
+    const matches = (state.routes || []).filter((r) => {
+      if (r.co !== "MOSC") return false;
+      return r.oe === hubEn || r.de === hubEn || r.ot === hubTc || r.dt === hubTc;
+    });
+
+    if (matches.length === 0) {
+      host.innerHTML = `<div class="yuu-shuttle-empty">No casino runs a shuttle to ${escapeHtml(hubEn)} in our data.</div>`;
+      return;
+    }
+
+    // Sort: open routes first (by next-departure asc), closed last.
+    const enriched = matches.map((r) => ({ r, next: nextDepartureEstimate(r) }));
+    enriched.sort((a, b) => {
+      const ao = a.next?.kind === "running" ? a.next.nextMin : 9999;
+      const bo = b.next?.kind === "running" ? b.next.nextMin : 9999;
+      if (ao !== bo) return ao - bo;
+      return (a.r.casino || "").localeCompare(b.r.casino || "");
+    });
+
+    host.innerHTML =
+      `<div class="yuu-shuttle-section-title">${matches.length} shuttles · ${escapeHtml(hubTc)} · ${escapeHtml(hubEn)}</div>` +
+      enriched.map(({ r, next }) => {
+        const c = r.color || "#a89060";
+        // The casino is whichever end ISN'T the hub.
+        const otherEn = r.oe === hubEn ? r.de : r.oe;
+        const otherTc = r.ot === hubTc ? r.dt : r.ot;
+        const meta = next?.kind === "running"
+          ? `<span class="yuu-shuttle-row-next">⏱ Next ~${next.nextMin} min</span><span>last ${next.lastHHMM}</span>`
+          : next?.kind === "closed"
+          ? `<span class="yuu-shuttle-row-closed">Closed</span><span>service ${next.firstHHMM}–${next.lastHHMM}</span>`
+          : `<span>${escapeHtml(r.frequency || "")}</span><span>${escapeHtml(r.hours || "")}</span>`;
+        return `<div class="yuu-shuttle-row" data-rk="${escapeHtml(r.rk)}">
+          <span class="yuu-badge MOSC" style="background:${c};color:#fff">${escapeHtml(r.casino || "Shuttle")}</span>
+          <div class="yuu-shuttle-row-direction">
+            <div>${escapeHtml(otherEn || "")}</div>
+            <div class="yuu-shuttle-row-tc">${escapeHtml(otherTc || "")} · Free 免費</div>
+          </div>
+          <div class="yuu-shuttle-row-meta">${meta}</div>
+        </div>`;
+      }).join("");
+
+    host.querySelectorAll(".yuu-shuttle-row").forEach((row) => {
+      row.addEventListener("click", () => {
+        const rk = row.dataset.rk;
+        const r = (state.routes || []).find((x) => x.rk === rk);
+        if (r) selectRoute(r);
+      });
+    });
+  }
+
+  // For Macau routes (no live ETA available — DSAT API CORS-closed) derive
+  // a "next bus" estimate from the static schedule chips on the route. The
+  // route carries:
+  //   - hours:     "06:00–00:30"      (operating window; 24:xx allowed past midnight)
+  //   - frequency: "Every 8 min" / "Every 8–10 min"
+  // Returns one of:
+  //   { kind: "running", nextMin, freqMin, lastHHMM }
+  //   { kind: "closed",  firstHHMM, lastHHMM }
+  //   null  (no schedule data → caller skips)
+  function nextDepartureEstimate(route) {
+    if (!route || !route.hours) return null;
+    const m = (route.hours.match(/(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})/));
+    if (!m) return null;
+    let firstH = +m[1], firstM = +m[2], lastH = +m[3], lastM = +m[4];
+    // Macau schedules wrap past midnight as "00:30" or "01:00" — treat
+    // those as next-day so the comparison below still works.
+    if (lastH < firstH) lastH += 24;
+    const now = new Date();
+    const cur = now.getHours() + now.getMinutes() / 60;
+    const start = firstH + firstM / 60;
+    const end   = lastH   + lastM   / 60;
+    const lastHHMM = `${(lastH % 24).toString().padStart(2,"0")}:${m[4].padStart(2,"0")}`;
+    const firstHHMM = `${m[1].padStart(2,"0")}:${m[2].padStart(2,"0")}`;
+    const inWindow = (cur >= start && cur <= end) ||
+                     (cur + 24 >= start && cur + 24 <= end);
+    if (!inWindow) {
+      return { kind: "closed", firstHHMM, lastHHMM };
+    }
+    // Frequency: pick the upper bound from "Every N min" / "Every A–B min".
+    const fm = (route.frequency || "").match(/(\d+)(?:\s*[–-]\s*(\d+))?\s*min/);
+    const freqMin = fm ? (+fm[2] || +fm[1]) : 15;
+    // Without per-vehicle GPS the actual wait is uniform on [0, freqMin],
+    // so the EXPECTED wait is freqMin / 2. Round to nearest minute.
+    const nextMin = Math.max(1, Math.round(freqMin / 2));
+    return { kind: "running", nextMin, freqMin, lastHHMM };
+  }
+
   // Rough fare estimator per operator. The HK gov APIs do publish
   // per-route per-stop fares (KMB/CTB) but we don't bake them into the
   // static bundle yet — for now show typical-range strings so every
@@ -406,12 +529,40 @@
   }
 
   function activateTab(tab) {
+    // Tab switch ⇒ wipe per-route state. Otherwise the previous selection
+    // (selected route, sticky search query, ETA timer) bleeds into the new
+    // tab and the user sees stale stops / a stale route panel.
+    const prev = state.activeTab;
+    if (prev && prev !== tab) {
+      state.selectedRoute = null;
+      state.selectedStop = null;
+      stopEtaPolling();
+      const search = $("yuu-search-input");
+      if (search) { search.value = ""; delete search.dataset.stopId; }
+      const results = $("yuu-search-results");
+      if (results) { results.hidden = true; results.innerHTML = ""; }
+      const eta = $("yuu-eta");
+      if (eta) eta.hidden = true;
+      const yuu = $("yuu");
+      if (yuu) {
+        yuu.dataset.company = "";
+        yuu.dataset.joint = "false";
+        yuu.style.removeProperty("--yuu-route-color");
+        yuu.style.removeProperty("--yuu-route-color-soft");
+        yuu.style.removeProperty("--yuu-route-text");
+      }
+    }
     state.activeTab = tab;
     document.querySelectorAll(".yuu-tab").forEach((b) => {
       const on = b.dataset.tab === tab;
       b.classList.toggle("active", on);
       b.setAttribute("aria-selected", on ? "true" : "false");
     });
+
+    // Tighten / loosen the main map's bounds depending on which region the
+    // active tab belongs to so the user can't pan across the whole HK + MO
+    // span unintentionally.
+    applyMapBoundsForTab(tab);
 
     const explore = $("yuu-explore-controls");
     const planSec = $("yuu-plan");
@@ -444,7 +595,36 @@
       if (route)     route.hidden     = true;
       if (map)       map.hidden       = true;
       if (mtrView)   mtrView.hidden   = false;
+      const shuttleV = $("yuu-shuttle-view"); if (shuttleV) shuttleV.hidden = true;
       ensureMtrTopologyLoaded().catch(() => {});
+      return;
+    }
+
+    if (tab === "shuttle") {
+      // Hub-first view: pick a transit hub, then see which casinos run a
+      // shuttle to / from it. From → To search lives in the Plan tab; this
+      // tab is for when you're already at a hub and want to know your
+      // options. Falls through to the standard route view once a route is
+      // picked.
+      const r = state.selectedRoute;
+      const isMosc = r && r.co === "MOSC";
+      if (isMosc) {
+        if (mtrView) mtrView.hidden = true;
+        const shuttleV = $("yuu-shuttle-view"); if (shuttleV) shuttleV.hidden = true;
+        if (map)     map.hidden     = false;
+        if (explore) explore.hidden = false;
+        if (welcome) welcome.hidden = true;
+        if (route)   route.hidden   = false;
+        if (sel)     sel.style.display = "none";
+        return;
+      }
+      if (explore) explore.hidden = true;
+      if (welcome) welcome.hidden = true;
+      if (route)   route.hidden   = true;
+      if (map)     map.hidden     = true;
+      if (mtrView) mtrView.hidden = true;
+      const shuttleV = $("yuu-shuttle-view"); if (shuttleV) shuttleV.hidden = false;
+      ensureShuttleViewWired();
       return;
     }
 
@@ -496,6 +676,26 @@
   // map pans freely between the two SARs without snapping back. Macau is
   // ~22.10–22.22°N / 113.52–113.62°E; HK is ~22.13–22.62°N / 113.78–114.50°E.
   const HK_BOUNDS = [[22.05, 113.50], [22.62, 114.50]];
+  // Tighter region bounds applied to the main map per-tab so the user
+  // doesn't pan to the wrong SAR by accident.
+  const HK_TIGHT_BOUNDS = [[22.13, 113.78], [22.62, 114.50]];
+  const MO_TIGHT_BOUNDS = [[22.10, 113.50], [22.22, 113.62]];
+
+  function applyMapBoundsForTab(tab) {
+    const map = state.map;
+    if (!map) return;
+    const region = TAB_REGION[tab];
+    let b;
+    if (region === "mo")      b = MO_TIGHT_BOUNDS;
+    else if (region === "hk") b = HK_TIGHT_BOUNDS;
+    else                      b = HK_BOUNDS;
+    map.setMaxBounds(b);
+    // Re-centre only when no route is selected; otherwise the route polyline
+    // owns the viewport.
+    if (!state.selectedRoute && !state.routeLayer) {
+      map.fitBounds(b, { animate: false });
+    }
+  }
 
   function initMtrToggle() {
     document.querySelectorAll(".yuu-mtr-toggle-btn").forEach((btn) => {
@@ -1931,10 +2131,20 @@
     });
     // Macau modes (MOB / LRT / MOSC) carry static frequency / operating-hours
     // strings from the curated JSON since no live ETA API exists for them.
-    if (route.frequency) {
+    // Surface a "next bus ~Xmin" estimate when within service window so the
+    // user gets a one-glance answer without doing the math.
+    const nextDep = nextDepartureEstimate(route);
+    if (nextDep) {
+      if (nextDep.kind === "running") {
+        parts.push(`<span class="yuu-schedule-chip yuu-next-chip" title="Average wait — schedule-based, no live GPS">⏱ Next ~${nextDep.nextMin} min · last ${nextDep.lastHHMM}</span>`);
+      } else {
+        parts.push(`<span class="yuu-schedule-chip yuu-next-chip yuu-next-closed">Closed · service ${nextDep.firstHHMM}–${nextDep.lastHHMM}</span>`);
+      }
+    }
+    if (route.frequency && !nextDep) {
       parts.push(`<span class="yuu-schedule-chip">${escapeHtml(route.frequency)}</span>`);
     }
-    if (route.hours) {
+    if (route.hours && !nextDep) {
       parts.push(`<span class="yuu-schedule-chip">${escapeHtml(route.hours)}</span>`);
     }
     if (route.casino) {
@@ -2159,8 +2369,10 @@
   // ------------------------------------------------------------------- map
 
   function initMap() {
-    state.map = L.map("yuu-map", { zoomControl: true })
-      .setView([22.3193, 114.1694], 11);
+    state.map = L.map("yuu-map", {
+      zoomControl: true,
+      maxBoundsViscosity: 0.85,
+    }).setView([22.3193, 114.1694], 11);
     // Voyager: colourful CARTO basemap — faster than osm.org and friendlier
     // on the eye than light_all (which was grayscale).
     L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
@@ -2169,6 +2381,7 @@
       subdomains: "abcd",
       maxZoom: 20,
     }).addTo(state.map);
+    state.map.setMaxBounds(HK_TIGHT_BOUNDS);
   }
 
   function companyColor(co) {
