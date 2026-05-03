@@ -389,7 +389,7 @@
           <span class="yuu-badge MOSC" style="background:${c};color:#fff">${escapeHtml(r.casino || "Shuttle")}</span>
           <div class="yuu-shuttle-row-direction">
             <div>${escapeHtml(otherEn || "")}</div>
-            <div class="yuu-shuttle-row-tc">${escapeHtml(otherTc || "")} · Free 免費</div>
+            <div class="yuu-shuttle-row-tc">${escapeHtml(otherTc || "")}</div>
           </div>
           <div class="yuu-shuttle-row-meta">${meta}</div>
         </div>`;
@@ -764,11 +764,15 @@
       return;
     }
 
-    // Bus tab + MO per-mode tabs (mobus / lrt / shuttle) all share the
-    // same UX: search box at top, route list / nearby below, main map
-    // sticky to the side. The TAB_COMPANIES filter narrows search /
-    // nearby suggestions to that mode's operators.
+    // Bus tab + MO per-mode tabs (mobus / lrt) share the same UX: search
+    // box at top, route list / nearby below, main map sticky on the side.
+    // TAB_COMPANIES filters search / nearby suggestions to that mode's
+    // operators.
     if (mtrView) mtrView.hidden = true;
+    // BUG FIX: previous round left the shuttle view visible when the
+    // user switched from 財車 → MOBus / LRT. Always hide it unless the
+    // shuttle branch above explicitly shows it.
+    const shuttleV = $("yuu-shuttle-view"); if (shuttleV) shuttleV.hidden = true;
     if (map)     map.hidden     = false;
     if (explore) explore.hidden = false;
     if (sel)     sel.style.display = (tab === "bus") ? "" : "none";
@@ -1472,14 +1476,18 @@
     });
 
     go.addEventListener("click", async () => {
-      const fromEnd = endpointFrom(from);
-      const toEnd = endpointFrom(to);
+      $("yuu-plan-results").innerHTML = `<div class="yuu-plan-loading">Searching…</div>`;
+      // Auto-geocode any input the user typed without picking a
+      // suggestion: hit OSM Nominatim, take the top hit, treat it as an
+      // address endpoint. Matches the user expectation that a typed
+      // address should "just work" without forcing a dropdown click.
+      const fromEnd = await resolveEndpointInput(from);
+      const toEnd   = await resolveEndpointInput(to);
       if (!fromEnd || !toEnd) {
         $("yuu-plan-results").innerHTML =
-          `<div class="yuu-plan-empty">Pick a stop or address suggestion in each box first.</div>`;
+          `<div class="yuu-plan-empty">Couldn't find one of the locations. Try a more specific name or pick a suggestion.</div>`;
         return;
       }
-      $("yuu-plan-results").innerHTML = `<div class="yuu-plan-loading">Searching routes…</div>`;
       try {
         const trips = await planTripMulti(fromEnd, toEnd);
         renderPlanResults(trips, fromEnd, toEnd);
@@ -1489,6 +1497,33 @@
           `<div class="yuu-plan-empty">Could not search routes. Try again.</div>`;
       }
     });
+  }
+
+  // First check if the input has a picked stop/address; if not, run a
+  // Nominatim lookup on whatever raw text is in the box and use the top
+  // hit as an address endpoint.
+  async function resolveEndpointInput(input) {
+    const picked = endpointFrom(input);
+    if (picked) return picked;
+    const q = (input?.value || "").trim();
+    if (!q) return null;
+    try {
+      const hits = await geocodeAddress(q);
+      const top = hits?.[0];
+      if (!top) return null;
+      // Persist on the input so subsequent clicks don't re-geocode.
+      input.dataset.lat = top.lat;
+      input.dataset.lng = top.lon;
+      delete input.dataset.stopId;
+      return {
+        kind: "addr",
+        lat: parseFloat(top.lat),
+        lng: parseFloat(top.lon),
+        label: top.display_name || q,
+      };
+    } catch {
+      return null;
+    }
   }
 
   function endpointFrom(input) {
@@ -1576,9 +1611,14 @@
       return;
     }
 
-    const stopHeader  = stopHtml ? `<div class="yuu-plan-suggest-section">Stops</div>` : "";
-    const addrHeader  = addrHtml ? `<div class="yuu-plan-suggest-section">Addresses</div>` : "";
-    suggest.innerHTML = stopHeader + stopHtml + addrHeader + addrHtml;
+    // Address (place / Nominatim) suggestions first — the user's intent
+    // is usually "I'm at this place", not "I'm at this specific kerb".
+    // The planner picks nearest stops within 600 m of whichever entry
+    // gets clicked, so an address pick gives more flexibility than a
+    // stop pick.
+    const addrHeader  = addrHtml ? `<div class="yuu-plan-suggest-section">📍 Places (OSM)</div>` : "";
+    const stopHeader  = stopHtml ? `<div class="yuu-plan-suggest-section">Direct stops</div>` : "";
+    suggest.innerHTML = addrHeader + addrHtml + stopHeader + stopHtml;
     suggest.hidden = false;
     suggest.querySelectorAll(".yuu-plan-suggest-item").forEach((el) => {
       el.addEventListener("click", () => {

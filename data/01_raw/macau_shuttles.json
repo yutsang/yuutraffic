@@ -4,36 +4,36 @@
     "OHFT": {
       "ne": "Outer Harbour Ferry Terminal",
       "nt": "外港客運碼頭",
-      "la": 22.1953,
-      "lg": 113.5538,
+      "la": 22.19705,
+      "lg": 113.5592,
       "type": "transit"
     },
     "TFT": {
       "ne": "Taipa Ferry Terminal",
       "nt": "氹仔客運碼頭",
-      "la": 22.1564,
-      "lg": 113.5878,
+      "la": 22.1631,
+      "lg": 113.576,
       "type": "transit"
     },
     "BG": {
       "ne": "Border Gate (Portas do Cerco)",
       "nt": "關閘",
-      "la": 22.2152,
-      "lg": 113.5481,
+      "la": 22.21594,
+      "lg": 113.5492,
       "type": "transit"
     },
     "AIR": {
       "ne": "Macau International Airport",
       "nt": "澳門國際機場",
-      "la": 22.1495,
-      "lg": 113.5916,
+      "la": 22.1499,
+      "lg": 113.58936,
       "type": "transit"
     },
     "HZMB": {
       "ne": "HZMB Macau Port",
       "nt": "港珠澳大橋澳門口岸",
-      "la": 22.1437,
-      "lg": 113.561,
+      "la": 22.2003,
+      "lg": 113.5761,
       "type": "transit"
     },
     "GAL": {
@@ -339,7 +339,7 @@
     {
       "id": "WMC-OHFT",
       "casino": "Wynn Macau",
-      "color": "#5e3815",
+      "color": "#7a4f1f",
       "from": "WMC",
       "to": "OHFT",
       "frequency": "Every 15 min",
@@ -348,7 +348,7 @@
     {
       "id": "WMC-BG",
       "casino": "Wynn Macau",
-      "color": "#5e3815",
+      "color": "#7a4f1f",
       "from": "WMC",
       "to": "BG",
       "frequency": "Every 15 min",
@@ -357,7 +357,7 @@
     {
       "id": "WMC-AIR",
       "casino": "Wynn Macau",
-      "color": "#5e3815",
+      "color": "#7a4f1f",
       "from": "WMC",
       "to": "AIR",
       "frequency": "Every 60 min",
@@ -366,7 +366,7 @@
     {
       "id": "WMC-HZMB",
       "casino": "Wynn Macau",
-      "color": "#5e3815",
+      "color": "#7a4f1f",
       "from": "WMC",
       "to": "HZMB",
       "frequency": "Every 20 min",
@@ -420,7 +420,7 @@
     {
       "id": "MGM-OHFT",
       "casino": "MGM Macau",
-      "color": "#8e6e1f",
+      "color": "#b89233",
       "from": "MGM",
       "to": "OHFT",
       "frequency": "Every 15 min",
@@ -429,7 +429,7 @@
     {
       "id": "MGM-BG",
       "casino": "MGM Macau",
-      "color": "#8e6e1f",
+      "color": "#b89233",
       "from": "MGM",
       "to": "BG",
       "frequency": "Every 15 min",
@@ -438,7 +438,7 @@
     {
       "id": "MGM-AIR",
       "casino": "MGM Macau",
-      "color": "#8e6e1f",
+      "color": "#b89233",
       "from": "MGM",
       "to": "AIR",
       "frequency": "Every 60 min",
@@ -447,7 +447,7 @@
     {
       "id": "MGM-HZMB",
       "casino": "MGM Macau",
-      "color": "#8e6e1f",
+      "color": "#b89233",
       "from": "MGM",
       "to": "HZMB",
       "frequency": "Every 20 min",
@@ -456,7 +456,7 @@
     {
       "id": "STC-OHFT",
       "casino": "Studio City",
-      "color": "#1f4e8c",
+      "color": "#7d3650",
       "from": "STC",
       "to": "OHFT",
       "frequency": "Every 30 min",
@@ -465,7 +465,7 @@
     {
       "id": "STC-TFT",
       "casino": "Studio City",
-      "color": "#1f4e8c",
+      "color": "#7d3650",
       "from": "STC",
       "to": "TFT",
       "frequency": "Every 60 min",
@@ -474,7 +474,7 @@
     {
       "id": "STC-BG",
       "casino": "Studio City",
-      "color": "#1f4e8c",
+      "color": "#7d3650",
       "from": "STC",
       "to": "BG",
       "frequency": "Every 30 min",
@@ -483,7 +483,7 @@
     {
       "id": "STC-AIR",
       "casino": "Studio City",
-      "color": "#1f4e8c",
+      "color": "#7d3650",
       "from": "STC",
       "to": "AIR",
       "frequency": "Every 60 min",
@@ -492,7 +492,7 @@
     {
       "id": "STC-HZMB",
       "casino": "Studio City",
-      "color": "#1f4e8c",
+      "color": "#7d3650",
       "from": "STC",
       "to": "HZMB",
       "frequency": "Every 30 min",
@@ -600,7 +600,7 @@
     {
       "id": "STW-OHFT",
       "casino": "StarWorld",
-      "color": "#5b6bbf",
+      "color": "#a89060",
       "from": "STW",
       "to": "OHFT",
       "frequency": "Every 15 min",
@@ -609,7 +609,7 @@
     {
       "id": "STW-BG",
       "casino": "StarWorld",
-      "color": "#5b6bbf",
+      "color": "#a89060",
       "from": "STW",
       "to": "BG",
       "frequency": "Every 15 min",
@@ -618,7 +618,7 @@
     {
       "id": "STW-HZMB",
       "casino": "StarWorld",
-      "color": "#5b6bbf",
+      "color": "#a89060",
       "from": "STW",
       "to": "HZMB",
       "frequency": "Every 20 min",
