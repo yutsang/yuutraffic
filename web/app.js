@@ -1399,14 +1399,19 @@
 
   function endpointFrom(input) {
     if (!input) return null;
-    if (input.dataset.stopId) return { kind: "stop", stopId: input.dataset.stopId, label: input.value };
-    if (input.dataset.lat && input.dataset.lng) {
+    const lat = parseFloat(input.dataset.lat || "");
+    const lng = parseFloat(input.dataset.lng || "");
+    if (input.dataset.stopId) {
       return {
-        kind: "addr",
-        lat: parseFloat(input.dataset.lat),
-        lng: parseFloat(input.dataset.lng),
+        kind: "stop",
+        stopId: input.dataset.stopId,
         label: input.value,
+        lat: Number.isFinite(lat) ? lat : null,
+        lng: Number.isFinite(lng) ? lng : null,
       };
+    }
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return { kind: "addr", lat, lng, label: input.value };
     }
     return null;
   }
@@ -1455,6 +1460,7 @@
       const en = displayEn(m.ne || "");
       return `<div class="yuu-plan-suggest-item" data-mode="stop"
                    data-stop-id="${escapeHtml(m.id)}"
+                   data-lat="${m.la ?? ""}" data-lng="${m.lg ?? ""}"
                    data-display="${escapeHtml(m.nt || en)}">
         ${tcRow}
         <span class="yuu-plan-suggest-en">${escapeHtml(en)}</span>
@@ -1485,8 +1491,12 @@
         input.value = el.dataset.display || "";
         if (el.dataset.mode === "stop") {
           input.dataset.stopId = el.dataset.stopId;
-          delete input.dataset.lat;
-          delete input.dataset.lng;
+          // Stop picks now also carry their lat/lng so the planner can
+          // radiate out to neighbouring stops within walking distance —
+          // matches user expectation that "永利澳門" finds bus stops near
+          // Wynn Macau, not just the casino's own shuttle kerb.
+          input.dataset.lat = el.dataset.lat || "";
+          input.dataset.lng = el.dataset.lng || "";
         } else {
           input.dataset.lat = el.dataset.lat;
           input.dataset.lng = el.dataset.lng;
@@ -1529,15 +1539,19 @@
   }
 
   // Resolve an endpoint to a list of candidate boarding/alighting stops
-  // with walking distance attached. For a stop endpoint that's just the
-  // stop itself; for an address it's the N nearest stops in walking range.
+  // with walking distance attached.
+  //
+  // Behaviour change (2026-05): even when the user explicitly picked a
+  // specific stop from the dropdown, the planner now treats that pick as
+  // a *location* and radiates out to nearby transit stops within walking
+  // range. This matches Google Maps / Citymapper behaviour: typing
+  // "永利澳門" should find any nearby bus stop or shuttle pickup, not just
+  // the exact MOSC_WMC kerb the user happened to highlight. Address /
+  // Nominatim picks already worked this way; stop picks did not.
   async function endpointToStops(end) {
     await ensureStopsLoaded();
-    if (end.kind === "stop") {
-      const s = state.stops[end.stopId];
-      return [{ id: end.stopId, distance: 0, ...(s || {}) }];
-    }
-    return nearestStopsTo(end.lat, end.lng, 600, 6);
+    if (end.lat == null || end.lng == null) return [];
+    return nearestStopsTo(end.lat, end.lng, 600, 8);
   }
 
   // Multi-stop search: for every pair (oStop, dStop) in the cross-product of
@@ -1552,6 +1566,13 @@
     // Track best (fewest-hops) result per route_key so we don't list the
     // same route 6 times boarding from 6 nearby stops.
     const byRoute = new Map();
+    // Macau modes have only direction-1 geometry on file but the underlying
+    // service runs both ways (LRT trains, casino shuttles, DSAT buses
+    // travelling the same route number). Treat them as bidirectional in
+    // the planner so a request from "stop later in the sequence" → "stop
+    // earlier" still finds the route. HK bus / MTR direction is enforced
+    // because those have separate _2.json geometry per direction.
+    const isBidir = (co) => co === "MOSC" || co === "LRT" || co === "MOB";
     // Build pairs of (origin route → dest route) candidates only when they
     // actually share a route key.
     for (const oStop of fromStops) {
@@ -1568,8 +1589,9 @@
               const stops = geo.stops || [];
               const fIdx = stops.findIndex((s) => s.stop_id === oStop.id);
               const tIdx = stops.findIndex((s) => s.stop_id === dStop.id);
-              if (fIdx < 0 || tIdx <= fIdx) continue;
-              const hops = tIdx - fIdx;
+              if (fIdx < 0 || tIdx < 0 || tIdx === fIdx) continue;
+              if (!isBidir(route.co) && tIdx < fIdx) continue;
+              const hops = Math.abs(tIdx - fIdx);
               // Rough total-time estimate: walking ~5 km/h (12 m/min), each
               // bus stop ~1.5 min, MTR station ~2 min.
               const transitPerStop = route.co === "MTR" ? 2 : 1.5;
