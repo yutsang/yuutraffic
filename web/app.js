@@ -48,9 +48,11 @@
   // Top-level tabs map to the set of company codes that show up in search.
   // The Bus tab also accepts a sub-filter via the operator <select>.
   const TAB_COMPANIES = {
-    bus:   new Set(["KMB", "CTB", "GMB", "MTRB", "RMB"]),
-    mtr:   new Set(["MTR"]),
-    momap: new Set(["MOB", "LRT", "MOSC"]),
+    bus:     new Set(["KMB", "CTB", "GMB", "MTRB", "RMB"]),
+    mtr:     new Set(["MTR"]),
+    mobus:   new Set(["MOB"]),
+    lrt:     new Set(["LRT"]),
+    shuttle: new Set(["MOSC"]),
   };
 
   // Heuristic labels derived from the HK route-number suffix/prefix. Used to
@@ -219,6 +221,47 @@
     return 2 * R * Math.asin(Math.sqrt(a));
   }
 
+  // Rough fare estimator per operator. The HK gov APIs do publish
+  // per-route per-stop fares (KMB/CTB) but we don't bake them into the
+  // static bundle yet — for now show typical-range strings so every
+  // route card carries a price hint. Casino shuttles are free.
+  // hops is optional: if provided, narrows the range proportionally.
+  function fareEstimate(route, hops) {
+    if (!route) return null;
+    const co = route.co;
+    if (co === "MOSC") return { str: "Free 免費", currency: "" };
+    // Per-operator typical ranges (HK$ unless noted). Numbers approximate
+    // 2026 tariffs; long-haul / cross-harbour routes are above the upper
+    // bound shown here.
+    const RANGE = {
+      KMB:  [4.5, 24.5,  "HK$"],
+      CTB:  [4.5, 24.5,  "HK$"],
+      GMB:  [3.0, 15.0,  "HK$"],
+      MTRB: [4.5, 16.5,  "HK$"],
+      RMB:  [8.0, 40.0,  "HK$"],
+      MTR:  [5.0, 47.0,  "HK$"],
+      MOB:  [6.0, 6.0,   "MOP$"],   // DSAT flat 6 patacas peninsula or Cotai
+      LRT:  [6.0, 6.0,   "MOP$"],   // MLM flat 6 patacas / 1-3 zones
+    };
+    const r = RANGE[co];
+    if (!r) return null;
+    const [low, high, currency] = r;
+    if (low === high) return { str: `${currency}${low.toFixed(0)}`, currency, amount: low };
+    if (typeof hops === "number" && hops >= 0) {
+      // Linearly interpolate based on hops. ~30 hops = full route end-to-
+      // end → upper bound. Short rides land near the lower bound.
+      const t = Math.max(0, Math.min(1, hops / 30));
+      const est = low + (high - low) * t;
+      const rounded = Math.round(est * 2) / 2;  // nearest 0.5
+      return { str: `~${currency}${rounded.toFixed(rounded % 1 ? 1 : 0)}`, currency, amount: rounded };
+    }
+    return {
+      str: `${currency}${low.toFixed(0)}–${high.toFixed(0)}`,
+      currency,
+      amount: (low + high) / 2,
+    };
+  }
+
   // Rough taxi-fare estimator. Both HK and Macau publish flag-fall + per-
   // distance tariffs; we model just the trunk amount (no surcharges) since
   // the user wants a sanity number, not a billing system. Road distance is
@@ -325,13 +368,41 @@
     );
   }
 
-  // Flat tab strip — no region switch. Macau gets one "Macau 澳門" tab
-  // that opens the unified Macau map with checkbox layer toggles inside.
+  // Tab → region map. The region switch (HK | Macau) hides tabs whose
+  // data-region doesn't match the active region; "any" tabs (Plan) are
+  // visible in both regions.
+  const TAB_REGION = {
+    bus: "hk", mtr: "hk",
+    mobus: "mo", lrt: "mo", shuttle: "mo",
+    plan: "any",
+  };
+  const REGION_DEFAULT_TAB = { hk: "bus", mo: "mobus" };
+
   function initModeTabs() {
     document.querySelectorAll(".yuu-tab").forEach((btn) => {
       btn.addEventListener("click", () => activateTab(btn.dataset.tab));
     });
-    activateTab("bus");
+    document.querySelectorAll(".yuu-region").forEach((btn) => {
+      btn.addEventListener("click", () => activateRegion(btn.dataset.region));
+    });
+    activateRegion("hk");
+  }
+
+  function activateRegion(region) {
+    state.activeRegion = region;
+    document.querySelectorAll(".yuu-region").forEach((b) => {
+      const on = b.dataset.region === region;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    document.querySelectorAll(".yuu-tab").forEach((b) => {
+      const r = b.dataset.region;
+      b.hidden = !(r === region || r === "any");
+    });
+    const cur = state.activeTab;
+    if (!cur || (TAB_REGION[cur] !== region && TAB_REGION[cur] !== "any")) {
+      activateTab(REGION_DEFAULT_TAB[region]);
+    }
   }
 
   function activateTab(tab) {
@@ -348,16 +419,14 @@
     const route   = $("yuu-route");
     const sel     = $("yuu-mode-select");
 
-    const mtrView   = $("yuu-mtr-view");
-    const momapView = $("yuu-momap-view");
-    const map       = $("yuu-map");
+    const mtrView = $("yuu-mtr-view");
+    const map     = $("yuu-map");
 
     if (tab === "plan") {
       if (explore)   explore.hidden   = true;
       if (welcome)   welcome.hidden   = true;
       if (route)     route.hidden     = true;
       if (mtrView)   mtrView.hidden   = true;
-      if (momapView) momapView.hidden = true;
       if (planSec)   planSec.hidden   = false;
       if (map)       map.hidden       = true;
       ensurePlanMapRendered();
@@ -374,49 +443,19 @@
       if (welcome)   welcome.hidden   = true;
       if (route)     route.hidden     = true;
       if (map)       map.hidden       = true;
-      if (momapView) momapView.hidden = true;
       if (mtrView)   mtrView.hidden   = false;
       ensureMtrTopologyLoaded().catch(() => {});
       return;
     }
 
-    if (tab === "momap") {
-      // Two presentations gated on whether a Macau route is currently
-      // selected:
-      //   no route           → unified Macau map (yuu-momap-view) with
-      //                         layer checkboxes;
-      //   MO route selected  → standard per-route view (stops + main map)
-      //                         so picking a specific route from search
-      //                         drills into a familiar UX rather than
-      //                         dropping the user back to the network map.
-      const r = state.selectedRoute;
-      const isMo = r && TAB_COMPANIES.momap.has(r.co);
-      if (isMo) {
-        if (explore)   explore.hidden   = false;
-        if (welcome)   welcome.hidden   = true;
-        if (route)     route.hidden     = false;
-        if (map)       map.hidden       = false;
-        if (mtrView)   mtrView.hidden   = true;
-        if (momapView) momapView.hidden = true;
-        if (sel)       sel.style.display = "none";
-      } else {
-        if (explore)   explore.hidden   = true;
-        if (welcome)   welcome.hidden   = true;
-        if (route)     route.hidden     = true;
-        if (map)       map.hidden       = true;
-        if (mtrView)   mtrView.hidden   = true;
-        if (momapView) momapView.hidden = false;
-        ensureMomapRendered().catch((e) => console.warn("momap render failed", e));
-      }
-      return;
-    }
-
-    // Bus tab — HK route list / search above the main map.
-    if (mtrView)   mtrView.hidden   = true;
-    if (momapView) momapView.hidden = true;
-    if (map)       map.hidden       = false;
-    if (explore)   explore.hidden   = false;
-    if (sel)       sel.style.display = (tab === "bus") ? "" : "none";
+    // Bus tab + MO per-mode tabs (mobus / lrt / shuttle) all share the
+    // same UX: search box at top, route list / nearby below, main map
+    // sticky to the side. The TAB_COMPANIES filter narrows search /
+    // nearby suggestions to that mode's operators.
+    if (mtrView) mtrView.hidden = true;
+    if (map)     map.hidden     = false;
+    if (explore) explore.hidden = false;
+    if (sel)     sel.style.display = (tab === "bus") ? "" : "none";
 
     // Refresh the visible content depending on whether a route is selected
     // and whether it belongs to the active tab.
@@ -439,287 +478,6 @@
     }
   }
 
-  // ===================================================== Unified Macau map
-  // One Leaflet instance covering the whole Macau peninsula + Cotai. Every
-  // MO route (bus / LRT / casino shuttle) is preloaded into a per-mode
-  // L.layerGroup; the three checkboxes above the map toggle visibility.
-  // Stops are bucketed by importance so low-zoom views aren't drowned in
-  // hundreds of bus-stop dots.
-
-  const MO_BOUNDS = [[22.10, 113.50], [22.22, 113.62]];
-  let momap = null;
-  // Per-layer state. `lines` always-on, `hubs` always-on, `regular` toggles
-  // visibility based on map zoom (≥13).
-  const momapLayers = {
-    MOB:  { lines: null, hubs: null, regular: null },
-    LRT:  { lines: null, hubs: null, regular: null },
-    MOSC: { lines: null, hubs: null, regular: null },
-  };
-  // Active checkbox state. Changes immediately add/remove L.layerGroups.
-  // Per-mode: whether stops + routes are eligible to show. `linesVisible`
-  // gates the polyline layer globally — default OFF so the wide map opens
-  // as a clean dot field of stops, not a noodle bowl.
-  const momapVisible = { MOB: true, LRT: true, MOSC: true };
-  let momapLinesVisible = false;
-  // Temporary highlight layer drawn when the user clicks a single stop —
-  // shows just the routes through THAT stop, even when global lines are
-  // hidden. Cleared on next stop click or when the side panel closes.
-  let momapHighlight = null;
-
-  // A stop is treated as a "hub" (always shown) if it's:
-  //  - any LRT station
-  //  - any 財車 stop (casinos + transit hubs are all important)
-  //  - a MOBus stop whose name contains a major-hub keyword
-  const HUB_KEYWORDS = /(關閘|機場|碼頭|港珠澳|大橋|媽閣|Border|Airport|Terminal|Bridge|Ferry|HZMB)/i;
-  function isHubStop(co, stopName) {
-    if (co === "LRT" || co === "MOSC") return true;
-    return HUB_KEYWORDS.test(stopName || "");
-  }
-
-  async function ensureMomapRendered() {
-    if (momap) {
-      // Re-attached: defer a tick so Leaflet recalculates after section
-      // unhide, otherwise the tile layer stays a 0×0 grey box.
-      setTimeout(() => momap.invalidateSize(), 0);
-      return;
-    }
-    momap = L.map("yuu-momap", {
-      zoomControl: true,
-      maxBounds: MO_BOUNDS,
-      maxBoundsViscosity: 0.85,
-      minZoom: 11,
-    }).fitBounds(MO_BOUNDS);
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-      attribution: '&copy; OSM &copy; CARTO',
-      subdomains: "abcd",
-      maxZoom: 19,
-      minZoom: 11,
-      bounds: MO_BOUNDS,
-    }).addTo(momap);
-
-    // Re-evaluate which "regular" stops should be visible whenever the
-    // user zooms — keeps the low-zoom view legible.
-    momap.on("zoomend", applyMomapZoomFilter);
-
-    // Tapping bare map (not a marker / polyline) clears the per-stop
-    // highlight + the side panel so the wide network view returns.
-    momap.on("click", () => {
-      if (momapHighlight) {
-        momap.removeLayer(momapHighlight);
-        momapHighlight = null;
-      }
-      const detail = $("yuu-momap-detail");
-      if (detail) { detail.hidden = true; detail.innerHTML = ""; }
-    });
-
-    await Promise.all([
-      buildMomapLayer("MOB"),
-      buildMomapLayer("LRT"),
-      buildMomapLayer("MOSC"),
-    ]);
-    applyMomapVisibility();
-    applyMomapZoomFilter();
-
-    // Wire checkbox events once. Two flavours: per-layer (data-layer="MOB"
-    // …) toggles a whole mode; the global "Show routes" (data-toggle="lines")
-    // turns the polylines on/off across all modes.
-    document.querySelectorAll(".yuu-momap-chk input[type=checkbox]").forEach((cb) => {
-      cb.addEventListener("change", () => {
-        if (cb.dataset.toggle === "lines") {
-          momapLinesVisible = cb.checked;
-        } else if (cb.dataset.layer) {
-          momapVisible[cb.dataset.layer] = cb.checked;
-        }
-        applyMomapVisibility();
-        applyMomapZoomFilter();
-      });
-    });
-  }
-
-  async function buildMomapLayer(co) {
-    const routes = (state.routes || []).filter((r) => r.co === co);
-    if (routes.length === 0) return;
-    const stops = await ensureStopsLoaded();
-    const geos = await Promise.all(routes.map((r) =>
-      fetchJson(`${DATA_BASE}/geometry/${r.rk}_1.json`).catch(() => null)
-    ));
-
-    const linesLayer   = L.layerGroup();
-    const hubsLayer    = L.layerGroup();
-    const regularLayer = L.layerGroup();
-
-    // Reverse index: stop_id → list of routes serving it. Used by the side
-    // panel that shows up when the user clicks a stop marker.
-    const stopRoutes = new Map();
-    geos.forEach((geo, i) => {
-      if (!geo) return;
-      const route = routes[i];
-      for (const s of (geo.stops || [])) {
-        if (!stopRoutes.has(s.stop_id)) stopRoutes.set(s.stop_id, []);
-        stopRoutes.get(s.stop_id).push(route);
-      }
-    });
-
-    const drawnStops = new Set();
-    geos.forEach((geo, i) => {
-      if (!geo) return;
-      const route = routes[i];
-      const c = route.color || companyColor(co);
-      const coords = (geo.coords || []).filter(
-        (p) => Array.isArray(p) && typeof p[0] === "number"
-      );
-      if (coords.length >= 2) {
-        const pl = L.polyline(coords, {
-          color: c, weight: co === "LRT" ? 5 : 3.5,
-          opacity: co === "MOSC" ? 0.55 : 0.85,
-          dashArray: co === "MOSC" ? "6 4" : null,
-        });
-        // Shuttle = casino name + EN endpoints. Bus / LRT = id + EN endpoints.
-        const tip = co === "MOSC"
-          ? `${route.casino || ""} · ${route.oe} → ${route.de}`.replace(/^\s*·\s*/, "")
-          : `${route.id} · ${route.oe || ""}${route.de ? ` → ${route.de}` : ""}`;
-        pl.bindTooltip(tip, { sticky: true });
-        pl.on("click", (e) => {
-          L.DomEvent.stopPropagation(e);
-          openMomapRouteDetail(route);
-        });
-        pl.addTo(linesLayer);
-      }
-      for (const s of (geo.stops || [])) {
-        if (drawnStops.has(s.stop_id)) continue;
-        drawnStops.add(s.stop_id);
-        const hub = isHubStop(co, s.stop_name) || isHubStop(co, s.stop_name_tc);
-        const marker = L.circleMarker([s.lat, s.lng], {
-          radius: hub ? 6 : 3,
-          fillColor: hub ? "#ffffff" : c,
-          color: c,
-          weight: hub ? 2.5 : 1.5,
-          fillOpacity: 1,
-        });
-        // High-zoom label: shows the stop name above ~zoom 15.
-        marker.bindTooltip(s.stop_name_tc || s.stop_name, {
-          permanent: false, direction: "top", className: "yuu-momap-stop-label", offset: [0, -4],
-        });
-        marker.on("click", () => openMomapStopDetail(s, stopRoutes.get(s.stop_id) || []));
-        marker._isHub = hub;
-        marker.addTo(hub ? hubsLayer : regularLayer);
-      }
-    });
-
-    momapLayers[co] = { lines: linesLayer, hubs: hubsLayer, regular: regularLayer };
-  }
-
-  function applyMomapVisibility() {
-    if (!momap) return;
-    for (const co of Object.keys(momapLayers)) {
-      const grp = momapLayers[co];
-      const layerOn = momapVisible[co];
-      // Stops follow the per-mode tick directly. Polylines additionally
-      // require the global "Show routes" tick.
-      const wantLines   = layerOn && momapLinesVisible;
-      const wantHubs    = layerOn;
-      const wantRegular = layerOn;
-      const apply = (key, want) => {
-        const layer = grp[key];
-        if (!layer) return;
-        const present = momap.hasLayer(layer);
-        if (want && !present) layer.addTo(momap);
-        if (!want && present) momap.removeLayer(layer);
-      };
-      apply("lines",   wantLines);
-      apply("hubs",    wantHubs);
-      apply("regular", wantRegular);
-    }
-  }
-
-  function applyMomapZoomFilter() {
-    if (!momap) return;
-    const z = momap.getZoom();
-    // Regular (non-hub) MOBus stops only at z>=13. LRT and MOSC don't have
-    // a "regular" layer (everything's a hub) but the same gate applies if
-    // they ever do.
-    for (const co of Object.keys(momapLayers)) {
-      const reg = momapLayers[co]?.regular;
-      if (!reg) continue;
-      if (!momapVisible[co]) {
-        if (momap.hasLayer(reg)) momap.removeLayer(reg);
-        continue;
-      }
-      if (z >= 13 && !momap.hasLayer(reg)) reg.addTo(momap);
-      if (z < 13  && momap.hasLayer(reg))  momap.removeLayer(reg);
-    }
-  }
-
-  function openMomapRouteDetail(route) {
-    const host = $("yuu-momap-detail");
-    if (!host) return;
-    host.hidden = false;
-    const enLabel  = `${route.oe || ""}${route.de ? " → " + route.de : ""}`;
-    const tcLabel  = `${route.ot || ""}${route.dt ? " → " + route.dt : ""}`;
-    const meta = [];
-    if (route.casino)    meta.push(`<span class="yuu-schedule-chip" style="background:${route.color||"#a89060"};color:#fff;border-color:transparent">${escapeHtml(route.casino)}</span>`);
-    if (route.frequency) meta.push(`<span>${escapeHtml(route.frequency)}</span>`);
-    if (route.hours)     meta.push(`<span>${escapeHtml(route.hours)}</span>`);
-    host.innerHTML = `
-      <h4><span class="yuu-badge ${route.co}" style="background:${route.color||companyColor(route.co)};color:#fff">${escapeHtml(route.id)}</span>
-          ${escapeHtml(enLabel)}</h4>
-      ${tcLabel.trim() && tcLabel !== enLabel ? `<div class="yuu-momap-detail-meta">${escapeHtml(tcLabel)}</div>` : ""}
-      ${meta.length ? `<div class="yuu-momap-detail-meta">${meta.join("")}</div>` : ""}
-      <button type="button" class="yuu-plan-open" data-action="open">Open route</button>
-    `;
-    host.querySelector('[data-action=open]')?.addEventListener("click", () => selectRoute(route));
-  }
-
-  async function openMomapStopDetail(stop, routes) {
-    const host = $("yuu-momap-detail");
-    if (!host) return;
-    host.hidden = false;
-
-    // Even when the global "Show routes" tick is off, draw the routes
-    // serving THIS stop on the map as a highlight so the user gets a
-    // visual answer to "what serves this stop?". Cleared next time a
-    // stop is clicked (or on Reset).
-    if (momapHighlight) momap.removeLayer(momapHighlight);
-    momapHighlight = L.layerGroup().addTo(momap);
-    routes.slice(0, 12).forEach(async (r) => {
-      const geo = await fetchJson(`${DATA_BASE}/geometry/${r.rk}_1.json`).catch(() => null);
-      if (!geo) return;
-      const coords = (geo.coords || []).filter((p) => Array.isArray(p) && typeof p[0] === "number");
-      if (coords.length < 2) return;
-      const c = r.color || companyColor(r.co);
-      L.polyline(coords, {
-        color: c, weight: 5, opacity: 0.9,
-        dashArray: r.co === "MOSC" ? "6 4" : null,
-      }).addTo(momapHighlight);
-    });
-
-    const tcName = stop.stop_name_tc || stop.stop_name;
-    const enName = stop.stop_name || stop.stop_name_tc;
-    const rows = routes.map((r) => {
-      const c = r.color || companyColor(r.co);
-      const lbl = r.co === "MOSC"
-        ? `${r.casino || ""} → ${r.oe === enName ? r.de : r.oe}`
-        : `${r.oe} → ${r.de}`;
-      return `<div class="yuu-momap-detail-route" data-rk="${escapeHtml(r.rk)}">
-        <span class="yuu-badge ${r.co}" style="background:${c};color:#fff">${escapeHtml(r.id)}</span>
-        <span>${escapeHtml(lbl)}</span>
-      </div>`;
-    }).join("");
-    host.innerHTML = `
-      <h4>${escapeHtml(tcName)}</h4>
-      <div class="yuu-momap-detail-meta">${escapeHtml(enName)}</div>
-      ${rows
-        ? `<div class="yuu-momap-detail-routes">${rows}</div>`
-        : `<div class="yuu-momap-detail-meta">No routes indexed for this stop.</div>`}
-    `;
-    host.querySelectorAll(".yuu-momap-detail-route").forEach((row) => {
-      row.addEventListener("click", () => {
-        const rk = row.dataset.rk;
-        const r = (state.routes || []).find((x) => x.rk === rk);
-        if (r) selectRoute(r);
-      });
-    });
-  }
 
   // ============================================================ MTR View
   // Two presentations:
@@ -1761,7 +1519,8 @@
 
     if (!direct.length && !inter.length) {
       el.innerHTML = taxiCard
-        ? `<div class="yuu-plan-section-title">No transit option found · taxi alternative below</div>${taxiCard}`
+        ? `<div class="yuu-plan-empty">No transit route found between these endpoints.</div>` +
+          `<div class="yuu-plan-section-title yuu-plan-taxi-title">Taxi instead</div>${taxiCard}`
         : `<div class="yuu-plan-empty">No route found between these endpoints.</div>`;
       return;
     }
@@ -1769,6 +1528,11 @@
     const interHtml = inter.map((t) => {
       const a = t.legA, b = t.legB;
       const ca = routeColor(a.route), cb = routeColor(b.route);
+      const fareA = fareEstimate(a.route, a.hops);
+      const fareB = fareEstimate(b.route, b.hops);
+      const fareLine = (fareA || fareB)
+        ? `<span class="yuu-plan-card-fare-pair">${fareA?.str || ""}${fareA && fareB ? " + " : ""}${fareB?.str || ""}</span>`
+        : "";
       return `<div class="yuu-plan-card yuu-plan-card-inter">
         <div class="yuu-plan-card-head" style="--card-color:${ca}">
           <span class="yuu-plan-card-stack">
@@ -1777,7 +1541,7 @@
             <span class="yuu-badge ${b.route.co}" style="background:${cb};color:#fff">${escapeHtml(b.route.id)}</span>
           </span>
           <div class="yuu-plan-card-meta">
-            <span class="yuu-plan-card-co">1 transfer</span>
+            <span class="yuu-plan-card-co">1 transfer ${fareLine}</span>
             <span class="yuu-plan-card-direction">→ ${escapeHtml(displayEn(b.alightName || ""))}</span>
           </div>
           <span class="yuu-plan-card-hops">${Math.round(t.totalMin)} min</span>
@@ -1789,17 +1553,19 @@
       </div>`;
     }).join("");
 
-    const summary = `<div class="yuu-plan-section-title">${direct.length + inter.length} option${(direct.length + inter.length) === 1 ? "" : "s"} · sorted by total time</div>`;
-    el.innerHTML = summary + taxiCard + direct.slice(0, 6).map((t) => {
+    // Transit options first (sorted by time), taxi at the bottom as a
+    // baseline-compare card.
+    const summary = `<div class="yuu-plan-section-title">${direct.length + inter.length} transit option${(direct.length + inter.length) === 1 ? "" : "s"} · sorted by total time</div>`;
+    const transitHtml = direct.slice(0, 6).map((t) => {
       const rc = routeColor(t.route);
       const opName = COMPANY_LABEL[t.route.co] || t.route.co;
       const dirLabel = (t.dir === 1 ? t.route.de : t.route.oe) || "";
-      const walk = Math.round(t.walkMin);
       const totalTxt = `${Math.round(t.totalMin)} min`;
       const walkParts = [];
       if (t.board.distance > 50)  walkParts.push(`Walk ${Math.round(t.board.distance)} m to board`);
       if (t.alight.distance > 50) walkParts.push(`walk ${Math.round(t.alight.distance)} m at end`);
       const walkLine = walkParts.length ? `<div class="yuu-plan-card-walk">🚶 ${walkParts.join(" · ")}</div>` : "";
+      const fare = fareEstimate(t.route, t.hops);
       return `<div class="yuu-plan-card">
         <div class="yuu-plan-card-head" style="--card-color:${rc}">
           <span class="yuu-badge ${t.route.co}" style="background:${rc};color:#fff">${escapeHtml(t.route.id)}</span>
@@ -1807,6 +1573,7 @@
             <span class="yuu-plan-card-co">${escapeHtml(opName)}</span>
             <span class="yuu-plan-card-direction">→ ${escapeHtml(displayEn(dirLabel))}</span>
           </div>
+          ${fare ? `<span class="yuu-plan-card-fare">${escapeHtml(fare.str)}</span>` : ""}
           <span class="yuu-plan-card-hops">${escapeHtml(totalTxt)}</span>
         </div>
         <div class="yuu-plan-card-body">
@@ -1816,6 +1583,12 @@
         ${walkLine}
       </div>`;
     }).join("") + interHtml;
+
+    const taxiSection = taxiCard
+      ? `<div class="yuu-plan-section-title yuu-plan-taxi-title">Or take a taxi</div>${taxiCard}`
+      : "";
+
+    el.innerHTML = summary + transitHtml + taxiSection;
 
     el.querySelectorAll(".yuu-plan-open").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -2064,11 +1837,10 @@
 
   async function selectRoute(route) {
     bumpActivity();
-    // Set selectedRoute FIRST so activateTab's "is a MO route selected?"
-    // check sees the new route — momap tab forks its visible elements
-    // based on whether a Macau route is currently selected.
     state.selectedRoute = route;
     state.selectedStop = null;
+    // Auto-switch to the matching tab + region so picking a Macau route
+    // from a HK tab's search box flips the user to the right context.
     const desiredTab = (() => {
       for (const [tab, set] of Object.entries(TAB_COMPANIES)) {
         if (set.has(route.co)) return tab;
@@ -2076,10 +1848,11 @@
       }
       return "bus";
     })();
-    // Always re-run activateTab even if the tab is already active so the
-    // momap tab refreshes its mode (route view vs. unified map) when the
-    // user picks a route while already on Macau.
-    activateTab(desiredTab);
+    const desiredRegion = TAB_REGION[desiredTab] || "hk";
+    if (state.activeRegion !== desiredRegion && desiredRegion !== "any") {
+      activateRegion(desiredRegion);
+    }
+    if (state.activeTab !== desiredTab) activateTab(desiredTab);
 
     state.selectedDirection = (route.dirs && route.dirs[0]) || 1;
 
@@ -2152,11 +1925,6 @@
     const dirs = route.dirs && route.dirs.length ? route.dirs : [1];
 
     const parts = [];
-    // For Macau routes the user came from the unified map — give them a
-    // one-click back link so they don't have to use a tab swap to return.
-    if (TAB_COMPANIES.momap.has(route.co)) {
-      parts.push(`<button type="button" class="yuu-back-to-map" data-action="back-to-momap">← Map</button>`);
-    }
     parts.push(`<span class="yuu-op-text">${escapeHtml(opNames)}</span>`);
     badges.forEach((b) => {
       parts.push(`<span class="yuu-schedule-chip">${escapeHtml(b.en)} · ${escapeHtml(b.tc)}</span>`);
@@ -2171,6 +1939,10 @@
     }
     if (route.casino) {
       parts.push(`<span class="yuu-schedule-chip" style="background:${route.color || '#a89060'};color:#fff;border-color:transparent">${escapeHtml(route.casino)}</span>`);
+    }
+    const fare = fareEstimate(route);
+    if (fare) {
+      parts.push(`<span class="yuu-schedule-chip yuu-fare-chip" title="Approximate fare">${escapeHtml(fare.str)}</span>`);
     }
     if (allApprox) {
       parts.push(`<span class="yuu-schedule-chip yuu-approx-chip" title="Coordinates are best-effort">Approximate · 路線僅供參考</span>`);
@@ -2214,15 +1986,6 @@
       });
     }
 
-    const back = host.querySelector("[data-action=back-to-momap]");
-    if (back) {
-      back.addEventListener("click", () => {
-        state.selectedRoute = null;
-        state.selectedStop = null;
-        $("yuu-search-input").value = "";
-        activateTab("momap");
-      });
-    }
   }
 
   // Empty stub kept for backward compat (init flow used to call this).
