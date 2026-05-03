@@ -1,109 +1,727 @@
 {
   "_note": "Casino shuttle (發財車) routes — hand-curated. No casino publishes machine-readable schedules so this is best-effort: edit the file, rerun scripts/export_static.py. Frequencies and hours are typical; actual times can shift weekly. Coordinates from OSM, accurate to ~30 m.",
   "stops": {
-    "OHFT":   { "ne": "Outer Harbour Ferry Terminal",       "nt": "外港客運碼頭",     "la": 22.19620, "lg": 113.55630, "type": "transit" },
-    "TFT":    { "ne": "Taipa Ferry Terminal",                "nt": "氹仔客運碼頭",     "la": 22.15514, "lg": 113.57881, "type": "transit" },
-    "BG":     { "ne": "Border Gate (Portas do Cerco)",       "nt": "關閘",             "la": 22.21580, "lg": 113.54920, "type": "transit" },
-    "AIR":    { "ne": "Macau International Airport",         "nt": "澳門國際機場",     "la": 22.15576, "lg": 113.58076, "type": "transit" },
-    "HZMB":   { "ne": "HZMB Macau Port",                     "nt": "港珠澳大橋澳門口岸","la": 22.15410, "lg": 113.55025, "type": "transit" },
-
-    "GAL":    { "ne": "Galaxy Macau",                        "nt": "澳門銀河",         "la": 22.14920, "lg": 113.55750, "type": "casino" },
-    "BRO":    { "ne": "Broadway Macau",                      "nt": "百老匯",           "la": 22.15050, "lg": 113.55400, "type": "casino" },
-    "VEN":    { "ne": "The Venetian Macao",                  "nt": "澳門威尼斯人",     "la": 22.14671, "lg": 113.55418, "type": "casino" },
-    "LON":    { "ne": "The Londoner Macao",                  "nt": "澳門倫敦人",       "la": 22.14272, "lg": 113.55598, "type": "casino" },
-    "PAR":    { "ne": "The Parisian Macao",                  "nt": "澳門巴黎人",       "la": 22.14050, "lg": 113.55748, "type": "casino" },
-    "FSM":    { "ne": "Four Seasons Macao",                  "nt": "澳門四季酒店",     "la": 22.14538, "lg": 113.55330, "type": "casino" },
-    "WPL":    { "ne": "Wynn Palace",                         "nt": "永利皇宮",         "la": 22.14555, "lg": 113.56133, "type": "casino" },
-    "MGC":    { "ne": "MGM Cotai",                           "nt": "美獅美高梅",       "la": 22.14790, "lg": 113.56330, "type": "casino" },
-    "STC":    { "ne": "Studio City",                         "nt": "新濠影滙",         "la": 22.14160, "lg": 113.56950, "type": "casino" },
-    "COD":    { "ne": "City of Dreams",                      "nt": "新濠天地",         "la": 22.14875, "lg": 113.56610, "type": "casino" },
-    "GLP":    { "ne": "Grand Lisboa Palace",                 "nt": "上葡京",           "la": 22.13725, "lg": 113.56435, "type": "casino" },
-
-    "WMC":    { "ne": "Wynn Macau",                          "nt": "永利澳門",         "la": 22.18745, "lg": 113.54627, "type": "casino_peninsula" },
-    "MGM":    { "ne": "MGM Macau",                           "nt": "澳門美高梅",       "la": 22.18860, "lg": 113.54515, "type": "casino_peninsula" },
-    "GLM":    { "ne": "Grand Lisboa (Macau)",                "nt": "新葡京",           "la": 22.18966, "lg": 113.54295, "type": "casino_peninsula" },
-    "STW":    { "ne": "StarWorld Hotel",                     "nt": "澳門星際酒店",     "la": 22.19005, "lg": 113.54420, "type": "casino_peninsula" },
-    "CSR":    { "ne": "Casa Real Hotel",                     "nt": "金龍酒店",         "la": 22.19580, "lg": 113.55065, "type": "casino_peninsula" },
-    "P16":    { "ne": "Sofitel Macau / Ponte 16",            "nt": "澳門十六浦索菲特酒店","la": 22.19550, "lg": 113.53400, "type": "casino_peninsula" },
-    "EMP":    { "ne": "Emperor Hotel",                       "nt": "英皇酒店",         "la": 22.19305, "lg": 113.54065, "type": "casino_peninsula" },
-    "FOR":    { "ne": "Fortuna Hotel",                       "nt": "財神酒店",         "la": 22.19510, "lg": 113.54740, "type": "casino_peninsula" },
-    "BWG":    { "ne": "Best Western Sun Sun Hotel",          "nt": "新新酒店",         "la": 22.19730, "lg": 113.53905, "type": "casino_peninsula" },
-    "JAI":    { "ne": "Casino Jai Alai",                     "nt": "回力娛樂場",       "la": 22.20175, "lg": 113.54910, "type": "casino_peninsula" },
-    "RVT":    { "ne": "Rio Hotel",                           "nt": "利澳酒店",         "la": 22.19420, "lg": 113.54895, "type": "casino_peninsula" }
+    "OHFT": {
+      "ne": "Outer Harbour Ferry Terminal",
+      "nt": "外港客運碼頭",
+      "la": 22.1953,
+      "lg": 113.5538,
+      "type": "transit"
+    },
+    "TFT": {
+      "ne": "Taipa Ferry Terminal",
+      "nt": "氹仔客運碼頭",
+      "la": 22.1564,
+      "lg": 113.5878,
+      "type": "transit"
+    },
+    "BG": {
+      "ne": "Border Gate (Portas do Cerco)",
+      "nt": "關閘",
+      "la": 22.2152,
+      "lg": 113.5481,
+      "type": "transit"
+    },
+    "AIR": {
+      "ne": "Macau International Airport",
+      "nt": "澳門國際機場",
+      "la": 22.1495,
+      "lg": 113.5916,
+      "type": "transit"
+    },
+    "HZMB": {
+      "ne": "HZMB Macau Port",
+      "nt": "港珠澳大橋澳門口岸",
+      "la": 22.1437,
+      "lg": 113.561,
+      "type": "transit"
+    },
+    "GAL": {
+      "ne": "Galaxy Macau",
+      "nt": "澳門銀河",
+      "la": 22.1492,
+      "lg": 113.5575,
+      "type": "casino"
+    },
+    "BRO": {
+      "ne": "Broadway Macau",
+      "nt": "百老匯",
+      "la": 22.1505,
+      "lg": 113.554,
+      "type": "casino"
+    },
+    "VEN": {
+      "ne": "The Venetian Macao",
+      "nt": "澳門威尼斯人",
+      "la": 22.14671,
+      "lg": 113.55418,
+      "type": "casino"
+    },
+    "LON": {
+      "ne": "The Londoner Macao",
+      "nt": "澳門倫敦人",
+      "la": 22.14272,
+      "lg": 113.55598,
+      "type": "casino"
+    },
+    "PAR": {
+      "ne": "The Parisian Macao",
+      "nt": "澳門巴黎人",
+      "la": 22.1405,
+      "lg": 113.55748,
+      "type": "casino"
+    },
+    "FSM": {
+      "ne": "Four Seasons Macao",
+      "nt": "澳門四季酒店",
+      "la": 22.14538,
+      "lg": 113.5533,
+      "type": "casino"
+    },
+    "WPL": {
+      "ne": "Wynn Palace",
+      "nt": "永利皇宮",
+      "la": 22.14555,
+      "lg": 113.56133,
+      "type": "casino"
+    },
+    "MGC": {
+      "ne": "MGM Cotai",
+      "nt": "美獅美高梅",
+      "la": 22.1479,
+      "lg": 113.5633,
+      "type": "casino"
+    },
+    "STC": {
+      "ne": "Studio City",
+      "nt": "新濠影滙",
+      "la": 22.1416,
+      "lg": 113.5695,
+      "type": "casino"
+    },
+    "COD": {
+      "ne": "City of Dreams",
+      "nt": "新濠天地",
+      "la": 22.14875,
+      "lg": 113.5661,
+      "type": "casino"
+    },
+    "GLP": {
+      "ne": "Grand Lisboa Palace",
+      "nt": "上葡京",
+      "la": 22.13725,
+      "lg": 113.56435,
+      "type": "casino"
+    },
+    "WMC": {
+      "ne": "Wynn Macau",
+      "nt": "永利澳門",
+      "la": 22.18745,
+      "lg": 113.54627,
+      "type": "casino_peninsula"
+    },
+    "MGM": {
+      "ne": "MGM Macau",
+      "nt": "澳門美高梅",
+      "la": 22.1886,
+      "lg": 113.54515,
+      "type": "casino_peninsula"
+    },
+    "GLM": {
+      "ne": "Grand Lisboa (Macau)",
+      "nt": "新葡京",
+      "la": 22.18966,
+      "lg": 113.54295,
+      "type": "casino_peninsula"
+    },
+    "STW": {
+      "ne": "StarWorld Hotel",
+      "nt": "澳門星際酒店",
+      "la": 22.19005,
+      "lg": 113.5442,
+      "type": "casino_peninsula"
+    },
+    "CSR": {
+      "ne": "Casa Real Hotel",
+      "nt": "金龍酒店",
+      "la": 22.1958,
+      "lg": 113.55065,
+      "type": "casino_peninsula"
+    },
+    "P16": {
+      "ne": "Sofitel Macau / Ponte 16",
+      "nt": "澳門十六浦索菲特酒店",
+      "la": 22.1955,
+      "lg": 113.534,
+      "type": "casino_peninsula"
+    },
+    "EMP": {
+      "ne": "Emperor Hotel",
+      "nt": "英皇酒店",
+      "la": 22.19305,
+      "lg": 113.54065,
+      "type": "casino_peninsula"
+    },
+    "FOR": {
+      "ne": "Fortuna Hotel",
+      "nt": "財神酒店",
+      "la": 22.1951,
+      "lg": 113.5474,
+      "type": "casino_peninsula"
+    },
+    "BWG": {
+      "ne": "Best Western Sun Sun Hotel",
+      "nt": "新新酒店",
+      "la": 22.1973,
+      "lg": 113.53905,
+      "type": "casino_peninsula"
+    },
+    "JAI": {
+      "ne": "Casino Jai Alai",
+      "nt": "回力娛樂場",
+      "la": 22.20175,
+      "lg": 113.5491,
+      "type": "casino_peninsula"
+    },
+    "RVT": {
+      "ne": "Rio Hotel",
+      "nt": "利澳酒店",
+      "la": 22.1942,
+      "lg": 113.54895,
+      "type": "casino_peninsula"
+    }
   },
   "routes": [
-    { "id": "GAL-OHFT", "casino": "Galaxy",       "color": "#a89060", "from": "GAL", "to": "OHFT", "frequency": "Every 15 min", "hours": "07:00–23:30" },
-    { "id": "GAL-TFT",  "casino": "Galaxy",       "color": "#a89060", "from": "GAL", "to": "TFT",  "frequency": "Every 30 min", "hours": "10:00–22:00" },
-    { "id": "GAL-BG",   "casino": "Galaxy",       "color": "#a89060", "from": "GAL", "to": "BG",   "frequency": "Every 15 min", "hours": "08:00–23:30" },
-    { "id": "GAL-AIR",  "casino": "Galaxy",       "color": "#a89060", "from": "GAL", "to": "AIR",  "frequency": "Every 30 min", "hours": "09:00–22:30" },
-    { "id": "GAL-HZMB", "casino": "Galaxy",       "color": "#a89060", "from": "GAL", "to": "HZMB", "frequency": "Every 15 min", "hours": "08:00–23:00" },
-    { "id": "GAL-STW",  "casino": "Galaxy",       "color": "#a89060", "from": "GAL", "to": "STW",  "frequency": "Every 15 min", "hours": "08:00–23:00" },
-
-    { "id": "VEN-OHFT", "casino": "Sands",        "color": "#c89858", "from": "VEN", "to": "OHFT", "frequency": "Every 10 min", "hours": "06:30–23:50" },
-    { "id": "VEN-TFT",  "casino": "Sands",        "color": "#c89858", "from": "VEN", "to": "TFT",  "frequency": "Every 30 min", "hours": "10:00–21:30" },
-    { "id": "VEN-BG",   "casino": "Sands",        "color": "#c89858", "from": "VEN", "to": "BG",   "frequency": "Every 10 min", "hours": "07:00–23:50" },
-    { "id": "VEN-AIR",  "casino": "Sands",        "color": "#c89858", "from": "VEN", "to": "AIR",  "frequency": "Every 30 min", "hours": "07:00–22:30" },
-    { "id": "VEN-HZMB", "casino": "Sands",        "color": "#c89858", "from": "VEN", "to": "HZMB", "frequency": "Every 10 min", "hours": "08:00–23:30" },
-
-    { "id": "WPL-OHFT", "casino": "Wynn Palace",  "color": "#7a4f1f", "from": "WPL", "to": "OHFT", "frequency": "Every 15 min", "hours": "08:00–23:00" },
-    { "id": "WPL-TFT",  "casino": "Wynn Palace",  "color": "#7a4f1f", "from": "WPL", "to": "TFT",  "frequency": "Every 30 min", "hours": "10:00–22:00" },
-    { "id": "WPL-BG",   "casino": "Wynn Palace",  "color": "#7a4f1f", "from": "WPL", "to": "BG",   "frequency": "Every 15 min", "hours": "08:00–23:00" },
-    { "id": "WPL-AIR",  "casino": "Wynn Palace",  "color": "#7a4f1f", "from": "WPL", "to": "AIR",  "frequency": "Every 30 min", "hours": "08:00–22:30" },
-    { "id": "WPL-HZMB", "casino": "Wynn Palace",  "color": "#7a4f1f", "from": "WPL", "to": "HZMB", "frequency": "Every 15 min", "hours": "08:00–23:00" },
-
-    { "id": "WMC-OHFT", "casino": "Wynn Macau",   "color": "#5e3815", "from": "WMC", "to": "OHFT", "frequency": "Every 15 min", "hours": "08:30–23:00" },
-    { "id": "WMC-BG",   "casino": "Wynn Macau",   "color": "#5e3815", "from": "WMC", "to": "BG",   "frequency": "Every 15 min", "hours": "08:30–23:00" },
-    { "id": "WMC-AIR",  "casino": "Wynn Macau",   "color": "#5e3815", "from": "WMC", "to": "AIR",  "frequency": "Every 60 min", "hours": "10:00–21:00" },
-    { "id": "WMC-HZMB", "casino": "Wynn Macau",   "color": "#5e3815", "from": "WMC", "to": "HZMB", "frequency": "Every 20 min", "hours": "08:30–23:00" },
-
-    { "id": "MGC-OHFT", "casino": "MGM Cotai",    "color": "#b89233", "from": "MGC", "to": "OHFT", "frequency": "Every 20 min", "hours": "08:00–23:00" },
-    { "id": "MGC-TFT",  "casino": "MGM Cotai",    "color": "#b89233", "from": "MGC", "to": "TFT",  "frequency": "Every 30 min", "hours": "10:00–22:00" },
-    { "id": "MGC-BG",   "casino": "MGM Cotai",    "color": "#b89233", "from": "MGC", "to": "BG",   "frequency": "Every 20 min", "hours": "08:00–23:00" },
-    { "id": "MGC-AIR",  "casino": "MGM Cotai",    "color": "#b89233", "from": "MGC", "to": "AIR",  "frequency": "Every 30 min", "hours": "08:00–22:30" },
-    { "id": "MGC-HZMB", "casino": "MGM Cotai",    "color": "#b89233", "from": "MGC", "to": "HZMB", "frequency": "Every 20 min", "hours": "08:00–23:00" },
-
-    { "id": "MGM-OHFT", "casino": "MGM Macau",    "color": "#8e6e1f", "from": "MGM", "to": "OHFT", "frequency": "Every 15 min", "hours": "08:00–23:00" },
-    { "id": "MGM-BG",   "casino": "MGM Macau",    "color": "#8e6e1f", "from": "MGM", "to": "BG",   "frequency": "Every 15 min", "hours": "08:00–23:00" },
-    { "id": "MGM-AIR",  "casino": "MGM Macau",    "color": "#8e6e1f", "from": "MGM", "to": "AIR",  "frequency": "Every 60 min", "hours": "10:00–21:30" },
-    { "id": "MGM-HZMB", "casino": "MGM Macau",    "color": "#8e6e1f", "from": "MGM", "to": "HZMB", "frequency": "Every 20 min", "hours": "08:00–23:00" },
-
-    { "id": "STC-OHFT", "casino": "Studio City",  "color": "#1f4e8c", "from": "STC", "to": "OHFT", "frequency": "Every 30 min", "hours": "08:00–22:00" },
-    { "id": "STC-TFT",  "casino": "Studio City",  "color": "#1f4e8c", "from": "STC", "to": "TFT",  "frequency": "Every 60 min", "hours": "10:00–21:00" },
-    { "id": "STC-BG",   "casino": "Studio City",  "color": "#1f4e8c", "from": "STC", "to": "BG",   "frequency": "Every 30 min", "hours": "08:00–22:00" },
-    { "id": "STC-AIR",  "casino": "Studio City",  "color": "#1f4e8c", "from": "STC", "to": "AIR",  "frequency": "Every 60 min", "hours": "10:00–22:00" },
-    { "id": "STC-HZMB", "casino": "Studio City",  "color": "#1f4e8c", "from": "STC", "to": "HZMB", "frequency": "Every 30 min", "hours": "08:00–22:00" },
-
-    { "id": "COD-OHFT", "casino": "Melco",        "color": "#7d3650", "from": "COD", "to": "OHFT", "frequency": "Every 15 min", "hours": "07:30–23:30" },
-    { "id": "COD-TFT",  "casino": "Melco",        "color": "#7d3650", "from": "COD", "to": "TFT",  "frequency": "Every 30 min", "hours": "10:00–22:00" },
-    { "id": "COD-BG",   "casino": "Melco",        "color": "#7d3650", "from": "COD", "to": "BG",   "frequency": "Every 15 min", "hours": "08:00–23:30" },
-    { "id": "COD-AIR",  "casino": "Melco",        "color": "#7d3650", "from": "COD", "to": "AIR",  "frequency": "Every 30 min", "hours": "08:00–22:30" },
-    { "id": "COD-HZMB", "casino": "Melco",        "color": "#7d3650", "from": "COD", "to": "HZMB", "frequency": "Every 15 min", "hours": "08:00–23:30" },
-
-    { "id": "GLP-OHFT", "casino": "Lisboa",       "color": "#7c1818", "from": "GLP", "to": "OHFT", "frequency": "Every 30 min", "hours": "08:00–23:00" },
-    { "id": "GLP-BG",   "casino": "Lisboa",       "color": "#7c1818", "from": "GLP", "to": "BG",   "frequency": "Every 30 min", "hours": "08:00–23:00" },
-    { "id": "GLP-HZMB", "casino": "Lisboa",       "color": "#7c1818", "from": "GLP", "to": "HZMB", "frequency": "Every 30 min", "hours": "08:00–23:00" },
-    { "id": "GLM-OHFT", "casino": "Lisboa",       "color": "#7c1818", "from": "GLM", "to": "OHFT", "frequency": "Every 30 min", "hours": "08:00–23:00" },
-    { "id": "GLM-BG",   "casino": "Lisboa",       "color": "#7c1818", "from": "GLM", "to": "BG",   "frequency": "Every 30 min", "hours": "08:00–23:00" },
-    { "id": "GLM-HZMB", "casino": "Lisboa",       "color": "#7c1818", "from": "GLM", "to": "HZMB", "frequency": "Every 30 min", "hours": "08:00–23:00" },
-
-    { "id": "STW-OHFT", "casino": "StarWorld",    "color": "#5b6bbf", "from": "STW", "to": "OHFT", "frequency": "Every 15 min", "hours": "08:00–23:00" },
-    { "id": "STW-BG",   "casino": "StarWorld",    "color": "#5b6bbf", "from": "STW", "to": "BG",   "frequency": "Every 15 min", "hours": "08:00–23:00" },
-    { "id": "STW-HZMB", "casino": "StarWorld",    "color": "#5b6bbf", "from": "STW", "to": "HZMB", "frequency": "Every 20 min", "hours": "08:00–23:00" },
-
-    { "id": "P16-OHFT", "casino": "Ponte 16",     "color": "#1f7c5d", "from": "P16", "to": "OHFT", "frequency": "Every 30 min", "hours": "10:00–23:00" },
-    { "id": "P16-BG",   "casino": "Ponte 16",     "color": "#1f7c5d", "from": "P16", "to": "BG",   "frequency": "Every 30 min", "hours": "10:00–23:00" },
-
-    { "id": "CSR-OHFT", "casino": "Casa Real",    "color": "#7a3030", "from": "CSR", "to": "OHFT", "frequency": "Every 30 min", "hours": "10:00–22:00" },
-    { "id": "CSR-BG",   "casino": "Casa Real",    "color": "#7a3030", "from": "CSR", "to": "BG",   "frequency": "Every 30 min", "hours": "10:00–22:00" },
-
-    { "id": "EMP-OHFT", "casino": "Emperor",      "color": "#a86510", "from": "EMP", "to": "OHFT", "frequency": "Every 30 min", "hours": "10:00–22:00" },
-    { "id": "EMP-BG",   "casino": "Emperor",      "color": "#a86510", "from": "EMP", "to": "BG",   "frequency": "Every 30 min", "hours": "10:00–22:00" },
-
-    { "id": "FOR-OHFT", "casino": "Fortuna",      "color": "#5d6e3a", "from": "FOR", "to": "OHFT", "frequency": "Every 30 min", "hours": "10:00–22:00" },
-    { "id": "FOR-BG",   "casino": "Fortuna",      "color": "#5d6e3a", "from": "FOR", "to": "BG",   "frequency": "Every 30 min", "hours": "10:00–22:00" },
-
-    { "id": "RVT-OHFT", "casino": "Rio",          "color": "#5b3a7a", "from": "RVT", "to": "OHFT", "frequency": "Every 30 min", "hours": "10:00–22:00" },
-    { "id": "JAI-OHFT", "casino": "Jai Alai",     "color": "#3a5c5c", "from": "JAI", "to": "OHFT", "frequency": "Every 30 min", "hours": "10:00–22:00" },
-    { "id": "BWG-OHFT", "casino": "Sun Sun",      "color": "#5b3535", "from": "BWG", "to": "OHFT", "frequency": "Every 30 min", "hours": "10:00–22:00" }
+    {
+      "id": "GAL-OHFT",
+      "casino": "Galaxy",
+      "color": "#a89060",
+      "from": "GAL",
+      "to": "OHFT",
+      "frequency": "Every 15 min",
+      "hours": "07:00–23:30"
+    },
+    {
+      "id": "GAL-TFT",
+      "casino": "Galaxy",
+      "color": "#a89060",
+      "from": "GAL",
+      "to": "TFT",
+      "frequency": "Every 30 min",
+      "hours": "10:00–22:00"
+    },
+    {
+      "id": "GAL-BG",
+      "casino": "Galaxy",
+      "color": "#a89060",
+      "from": "GAL",
+      "to": "BG",
+      "frequency": "Every 15 min",
+      "hours": "08:00–23:30"
+    },
+    {
+      "id": "GAL-AIR",
+      "casino": "Galaxy",
+      "color": "#a89060",
+      "from": "GAL",
+      "to": "AIR",
+      "frequency": "Every 30 min",
+      "hours": "09:00–22:30"
+    },
+    {
+      "id": "GAL-HZMB",
+      "casino": "Galaxy",
+      "color": "#a89060",
+      "from": "GAL",
+      "to": "HZMB",
+      "frequency": "Every 15 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "GAL-STW",
+      "casino": "Galaxy",
+      "color": "#a89060",
+      "from": "GAL",
+      "to": "STW",
+      "frequency": "Every 15 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "VEN-OHFT",
+      "casino": "Sands",
+      "color": "#c89858",
+      "from": "VEN",
+      "to": "OHFT",
+      "frequency": "Every 10 min",
+      "hours": "06:30–23:50"
+    },
+    {
+      "id": "VEN-TFT",
+      "casino": "Sands",
+      "color": "#c89858",
+      "from": "VEN",
+      "to": "TFT",
+      "frequency": "Every 30 min",
+      "hours": "10:00–21:30"
+    },
+    {
+      "id": "VEN-BG",
+      "casino": "Sands",
+      "color": "#c89858",
+      "from": "VEN",
+      "to": "BG",
+      "frequency": "Every 10 min",
+      "hours": "07:00–23:50"
+    },
+    {
+      "id": "VEN-AIR",
+      "casino": "Sands",
+      "color": "#c89858",
+      "from": "VEN",
+      "to": "AIR",
+      "frequency": "Every 30 min",
+      "hours": "07:00–22:30"
+    },
+    {
+      "id": "VEN-HZMB",
+      "casino": "Sands",
+      "color": "#c89858",
+      "from": "VEN",
+      "to": "HZMB",
+      "frequency": "Every 10 min",
+      "hours": "08:00–23:30"
+    },
+    {
+      "id": "WPL-OHFT",
+      "casino": "Wynn Palace",
+      "color": "#7a4f1f",
+      "from": "WPL",
+      "to": "OHFT",
+      "frequency": "Every 15 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "WPL-TFT",
+      "casino": "Wynn Palace",
+      "color": "#7a4f1f",
+      "from": "WPL",
+      "to": "TFT",
+      "frequency": "Every 30 min",
+      "hours": "10:00–22:00"
+    },
+    {
+      "id": "WPL-BG",
+      "casino": "Wynn Palace",
+      "color": "#7a4f1f",
+      "from": "WPL",
+      "to": "BG",
+      "frequency": "Every 15 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "WPL-AIR",
+      "casino": "Wynn Palace",
+      "color": "#7a4f1f",
+      "from": "WPL",
+      "to": "AIR",
+      "frequency": "Every 30 min",
+      "hours": "08:00–22:30"
+    },
+    {
+      "id": "WPL-HZMB",
+      "casino": "Wynn Palace",
+      "color": "#7a4f1f",
+      "from": "WPL",
+      "to": "HZMB",
+      "frequency": "Every 15 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "WMC-OHFT",
+      "casino": "Wynn Macau",
+      "color": "#5e3815",
+      "from": "WMC",
+      "to": "OHFT",
+      "frequency": "Every 15 min",
+      "hours": "08:30–23:00"
+    },
+    {
+      "id": "WMC-BG",
+      "casino": "Wynn Macau",
+      "color": "#5e3815",
+      "from": "WMC",
+      "to": "BG",
+      "frequency": "Every 15 min",
+      "hours": "08:30–23:00"
+    },
+    {
+      "id": "WMC-AIR",
+      "casino": "Wynn Macau",
+      "color": "#5e3815",
+      "from": "WMC",
+      "to": "AIR",
+      "frequency": "Every 60 min",
+      "hours": "10:00–21:00"
+    },
+    {
+      "id": "WMC-HZMB",
+      "casino": "Wynn Macau",
+      "color": "#5e3815",
+      "from": "WMC",
+      "to": "HZMB",
+      "frequency": "Every 20 min",
+      "hours": "08:30–23:00"
+    },
+    {
+      "id": "MGC-OHFT",
+      "casino": "MGM Cotai",
+      "color": "#b89233",
+      "from": "MGC",
+      "to": "OHFT",
+      "frequency": "Every 20 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "MGC-TFT",
+      "casino": "MGM Cotai",
+      "color": "#b89233",
+      "from": "MGC",
+      "to": "TFT",
+      "frequency": "Every 30 min",
+      "hours": "10:00–22:00"
+    },
+    {
+      "id": "MGC-BG",
+      "casino": "MGM Cotai",
+      "color": "#b89233",
+      "from": "MGC",
+      "to": "BG",
+      "frequency": "Every 20 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "MGC-AIR",
+      "casino": "MGM Cotai",
+      "color": "#b89233",
+      "from": "MGC",
+      "to": "AIR",
+      "frequency": "Every 30 min",
+      "hours": "08:00–22:30"
+    },
+    {
+      "id": "MGC-HZMB",
+      "casino": "MGM Cotai",
+      "color": "#b89233",
+      "from": "MGC",
+      "to": "HZMB",
+      "frequency": "Every 20 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "MGM-OHFT",
+      "casino": "MGM Macau",
+      "color": "#8e6e1f",
+      "from": "MGM",
+      "to": "OHFT",
+      "frequency": "Every 15 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "MGM-BG",
+      "casino": "MGM Macau",
+      "color": "#8e6e1f",
+      "from": "MGM",
+      "to": "BG",
+      "frequency": "Every 15 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "MGM-AIR",
+      "casino": "MGM Macau",
+      "color": "#8e6e1f",
+      "from": "MGM",
+      "to": "AIR",
+      "frequency": "Every 60 min",
+      "hours": "10:00–21:30"
+    },
+    {
+      "id": "MGM-HZMB",
+      "casino": "MGM Macau",
+      "color": "#8e6e1f",
+      "from": "MGM",
+      "to": "HZMB",
+      "frequency": "Every 20 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "STC-OHFT",
+      "casino": "Studio City",
+      "color": "#1f4e8c",
+      "from": "STC",
+      "to": "OHFT",
+      "frequency": "Every 30 min",
+      "hours": "08:00–22:00"
+    },
+    {
+      "id": "STC-TFT",
+      "casino": "Studio City",
+      "color": "#1f4e8c",
+      "from": "STC",
+      "to": "TFT",
+      "frequency": "Every 60 min",
+      "hours": "10:00–21:00"
+    },
+    {
+      "id": "STC-BG",
+      "casino": "Studio City",
+      "color": "#1f4e8c",
+      "from": "STC",
+      "to": "BG",
+      "frequency": "Every 30 min",
+      "hours": "08:00–22:00"
+    },
+    {
+      "id": "STC-AIR",
+      "casino": "Studio City",
+      "color": "#1f4e8c",
+      "from": "STC",
+      "to": "AIR",
+      "frequency": "Every 60 min",
+      "hours": "10:00–22:00"
+    },
+    {
+      "id": "STC-HZMB",
+      "casino": "Studio City",
+      "color": "#1f4e8c",
+      "from": "STC",
+      "to": "HZMB",
+      "frequency": "Every 30 min",
+      "hours": "08:00–22:00"
+    },
+    {
+      "id": "COD-OHFT",
+      "casino": "Melco",
+      "color": "#7d3650",
+      "from": "COD",
+      "to": "OHFT",
+      "frequency": "Every 15 min",
+      "hours": "07:30–23:30"
+    },
+    {
+      "id": "COD-TFT",
+      "casino": "Melco",
+      "color": "#7d3650",
+      "from": "COD",
+      "to": "TFT",
+      "frequency": "Every 30 min",
+      "hours": "10:00–22:00"
+    },
+    {
+      "id": "COD-BG",
+      "casino": "Melco",
+      "color": "#7d3650",
+      "from": "COD",
+      "to": "BG",
+      "frequency": "Every 15 min",
+      "hours": "08:00–23:30"
+    },
+    {
+      "id": "COD-AIR",
+      "casino": "Melco",
+      "color": "#7d3650",
+      "from": "COD",
+      "to": "AIR",
+      "frequency": "Every 30 min",
+      "hours": "08:00–22:30"
+    },
+    {
+      "id": "COD-HZMB",
+      "casino": "Melco",
+      "color": "#7d3650",
+      "from": "COD",
+      "to": "HZMB",
+      "frequency": "Every 15 min",
+      "hours": "08:00–23:30"
+    },
+    {
+      "id": "GLP-OHFT",
+      "casino": "Lisboa",
+      "color": "#7c1818",
+      "from": "GLP",
+      "to": "OHFT",
+      "frequency": "Every 30 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "GLP-BG",
+      "casino": "Lisboa",
+      "color": "#7c1818",
+      "from": "GLP",
+      "to": "BG",
+      "frequency": "Every 30 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "GLP-HZMB",
+      "casino": "Lisboa",
+      "color": "#7c1818",
+      "from": "GLP",
+      "to": "HZMB",
+      "frequency": "Every 30 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "GLM-OHFT",
+      "casino": "Lisboa",
+      "color": "#7c1818",
+      "from": "GLM",
+      "to": "OHFT",
+      "frequency": "Every 30 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "GLM-BG",
+      "casino": "Lisboa",
+      "color": "#7c1818",
+      "from": "GLM",
+      "to": "BG",
+      "frequency": "Every 30 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "GLM-HZMB",
+      "casino": "Lisboa",
+      "color": "#7c1818",
+      "from": "GLM",
+      "to": "HZMB",
+      "frequency": "Every 30 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "STW-OHFT",
+      "casino": "StarWorld",
+      "color": "#5b6bbf",
+      "from": "STW",
+      "to": "OHFT",
+      "frequency": "Every 15 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "STW-BG",
+      "casino": "StarWorld",
+      "color": "#5b6bbf",
+      "from": "STW",
+      "to": "BG",
+      "frequency": "Every 15 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "STW-HZMB",
+      "casino": "StarWorld",
+      "color": "#5b6bbf",
+      "from": "STW",
+      "to": "HZMB",
+      "frequency": "Every 20 min",
+      "hours": "08:00–23:00"
+    },
+    {
+      "id": "P16-OHFT",
+      "casino": "Ponte 16",
+      "color": "#1f7c5d",
+      "from": "P16",
+      "to": "OHFT",
+      "frequency": "Every 30 min",
+      "hours": "10:00–23:00"
+    },
+    {
+      "id": "P16-BG",
+      "casino": "Ponte 16",
+      "color": "#1f7c5d",
+      "from": "P16",
+      "to": "BG",
+      "frequency": "Every 30 min",
+      "hours": "10:00–23:00"
+    },
+    {
+      "id": "CSR-OHFT",
+      "casino": "Casa Real",
+      "color": "#7a3030",
+      "from": "CSR",
+      "to": "OHFT",
+      "frequency": "Every 30 min",
+      "hours": "10:00–22:00"
+    },
+    {
+      "id": "CSR-BG",
+      "casino": "Casa Real",
+      "color": "#7a3030",
+      "from": "CSR",
+      "to": "BG",
+      "frequency": "Every 30 min",
+      "hours": "10:00–22:00"
+    },
+    {
+      "id": "EMP-OHFT",
+      "casino": "Emperor",
+      "color": "#a86510",
+      "from": "EMP",
+      "to": "OHFT",
+      "frequency": "Every 30 min",
+      "hours": "10:00–22:00"
+    },
+    {
+      "id": "EMP-BG",
+      "casino": "Emperor",
+      "color": "#a86510",
+      "from": "EMP",
+      "to": "BG",
+      "frequency": "Every 30 min",
+      "hours": "10:00–22:00"
+    },
+    {
+      "id": "FOR-OHFT",
+      "casino": "Fortuna",
+      "color": "#5d6e3a",
+      "from": "FOR",
+      "to": "OHFT",
+      "frequency": "Every 30 min",
+      "hours": "10:00–22:00"
+    },
+    {
+      "id": "FOR-BG",
+      "casino": "Fortuna",
+      "color": "#5d6e3a",
+      "from": "FOR",
+      "to": "BG",
+      "frequency": "Every 30 min",
+      "hours": "10:00–22:00"
+    },
+    {
+      "id": "RVT-OHFT",
+      "casino": "Rio",
+      "color": "#5b3a7a",
+      "from": "RVT",
+      "to": "OHFT",
+      "frequency": "Every 30 min",
+      "hours": "10:00–22:00"
+    },
+    {
+      "id": "JAI-OHFT",
+      "casino": "Jai Alai",
+      "color": "#3a5c5c",
+      "from": "JAI",
+      "to": "OHFT",
+      "frequency": "Every 30 min",
+      "hours": "10:00–22:00"
+    },
+    {
+      "id": "BWG-OHFT",
+      "casino": "Sun Sun",
+      "color": "#5b3535",
+      "from": "BWG",
+      "to": "OHFT",
+      "frequency": "Every 30 min",
+      "hours": "10:00–22:00"
+    }
   ]
 }

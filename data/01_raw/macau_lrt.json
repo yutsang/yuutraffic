@@ -1,19 +1,84 @@
 {
   "_note": "Hand-curated MLM Light Rapid Transit data. MLM publishes no open API or GTFS; coordinates were derived from OSM and are accurate to ~30 m. Edit station coords here and rerun scripts/export_static.py to update the static bundle. Operational status verified 2026-05.",
   "stations": {
-    "STA": { "ne": "Stadium",                     "nt": "運動場",       "la": 22.15740, "lg": 113.55955 },
-    "PAC": { "ne": "Pac On",                      "nt": "北安",         "la": 22.15893, "lg": 113.56672 },
-    "AIR": { "ne": "Macau International Airport", "nt": "澳門國際機場", "la": 22.15576, "lg": 113.58076 },
-    "TFT": { "ne": "Taipa Ferry Terminal",        "nt": "氹仔碼頭",     "la": 22.15514, "lg": 113.57881 },
-    "OCN": { "ne": "Ocean",                       "nt": "海洋",         "la": 22.15013, "lg": 113.56055 },
-    "PKK": { "ne": "Pai Kok",                     "nt": "排角",         "la": 22.15585, "lg": 113.55712 },
-    "EST": { "ne": "Estádio",                "nt": "運動場前",     "la": 22.15405, "lg": 113.55462 },
-    "CTE": { "ne": "Cotai East",                  "nt": "路氹東",       "la": 22.14723, "lg": 113.56281 },
-    "CTW": { "ne": "Cotai West",                  "nt": "路氹西",       "la": 22.14385, "lg": 113.56629 },
-    "LOT": { "ne": "Lotus",                       "nt": "蓮花",         "la": 22.13520, "lg": 113.56800 },
-    "LCK": { "ne": "Lotus Checkpoint",            "nt": "橫琴口岸",     "la": 22.12862, "lg": 113.56480 },
-    "SPV": { "ne": "Seac Pai Van",                "nt": "石排灣",       "la": 22.12010, "lg": 113.56160 },
-    "BAR": { "ne": "Barra",                       "nt": "媽閣",         "la": 22.18723, "lg": 113.53055 }
+    "STA": {
+      "ne": "Stadium",
+      "nt": "運動場",
+      "la": 22.1574,
+      "lg": 113.55955
+    },
+    "PAC": {
+      "ne": "Pac On",
+      "nt": "北安",
+      "la": 22.15893,
+      "lg": 113.56672
+    },
+    "AIR": {
+      "ne": "Macau International Airport",
+      "nt": "澳門國際機場",
+      "la": 22.1495,
+      "lg": 113.5916
+    },
+    "TFT": {
+      "ne": "Taipa Ferry Terminal",
+      "nt": "氹仔碼頭",
+      "la": 22.1564,
+      "lg": 113.5878
+    },
+    "OCN": {
+      "ne": "Ocean",
+      "nt": "海洋",
+      "la": 22.15013,
+      "lg": 113.56055
+    },
+    "PKK": {
+      "ne": "Pai Kok",
+      "nt": "排角",
+      "la": 22.15585,
+      "lg": 113.55712
+    },
+    "EST": {
+      "ne": "Estádio",
+      "nt": "運動場前",
+      "la": 22.15405,
+      "lg": 113.55462
+    },
+    "CTE": {
+      "ne": "Cotai East",
+      "nt": "路氹東",
+      "la": 22.14723,
+      "lg": 113.56281
+    },
+    "CTW": {
+      "ne": "Cotai West",
+      "nt": "路氹西",
+      "la": 22.14385,
+      "lg": 113.56629
+    },
+    "LOT": {
+      "ne": "Lotus",
+      "nt": "蓮花",
+      "la": 22.1352,
+      "lg": 113.568
+    },
+    "LCK": {
+      "ne": "Lotus Checkpoint",
+      "nt": "橫琴口岸",
+      "la": 22.12862,
+      "lg": 113.5648
+    },
+    "SPV": {
+      "ne": "Seac Pai Van",
+      "nt": "石排灣",
+      "la": 22.1201,
+      "lg": 113.5616
+    },
+    "BAR": {
+      "ne": "Barra",
+      "nt": "媽閣",
+      "la": 22.18723,
+      "lg": 113.53055
+    }
   },
   "lines": [
     {
@@ -21,28 +86,48 @@
       "name_en": "Taipa Line",
       "name_tc": "氹仔線",
       "color": "#00a651",
-      "stations": ["STA", "PAC", "AIR", "CTW", "CTE", "EST", "PKK", "TFT", "OCN", "LOT"]
+      "stations": [
+        "STA",
+        "PAC",
+        "AIR",
+        "CTW",
+        "CTE",
+        "EST",
+        "PKK",
+        "TFT",
+        "OCN",
+        "LOT"
+      ]
     },
     {
       "id": "BAR",
       "name_en": "Barra Line",
       "name_tc": "媽閣線",
       "color": "#0091da",
-      "stations": ["TFT", "BAR"]
+      "stations": [
+        "TFT",
+        "BAR"
+      ]
     },
     {
       "id": "HQX",
       "name_en": "Hengqin Extension",
       "name_tc": "橫琴延伸線",
       "color": "#f5a623",
-      "stations": ["LOT", "LCK"]
+      "stations": [
+        "LOT",
+        "LCK"
+      ]
     },
     {
       "id": "SPV",
       "name_en": "Seac Pai Van Line",
       "name_tc": "石排灣線",
       "color": "#9b59b6",
-      "stations": ["LOT", "SPV"]
+      "stations": [
+        "LOT",
+        "SPV"
+      ]
     }
   ]
 }
