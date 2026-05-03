@@ -19,7 +19,7 @@
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin="" />
-<link rel="stylesheet" href="./style.css?v=20260503030937-2b8a94cf" />
+<link rel="stylesheet" href="./style.css?v=20260503032636-a4e37c96" />
 </head>
 <body>
 <div id="yuu" class="yuu-widget">
@@ -32,9 +32,7 @@
     <div class="yuu-mode-tabs" role="tablist">
       <button type="button" class="yuu-tab active" data-tab="bus"     data-region="hk"  role="tab" aria-selected="true">Bus</button>
       <button type="button" class="yuu-tab"        data-tab="mtr"     data-region="hk"  role="tab" aria-selected="false">MTR</button>
-      <button type="button" class="yuu-tab"        data-tab="mobus"   data-region="mo"  role="tab" aria-selected="false" hidden>MOBus</button>
-      <button type="button" class="yuu-tab"        data-tab="lrt"     data-region="mo"  role="tab" aria-selected="false" hidden>輕軌 LRT</button>
-      <button type="button" class="yuu-tab"        data-tab="shuttle" data-region="mo"  role="tab" aria-selected="false" hidden>財車</button>
+      <button type="button" class="yuu-tab"        data-tab="momap"   data-region="mo"  role="tab" aria-selected="false" hidden>Map 地圖</button>
       <button type="button" class="yuu-tab"        data-tab="plan"    data-region="any" role="tab" aria-selected="false">Plan</button>
     </div>
     <div class="yuu-search" id="yuu-explore-controls">
@@ -67,6 +65,17 @@
         <span class="yuu-eta-time yuu-scheduled">⏱ Scheduled</span>
         <span class="yuu-eta-time yuu-arriving">Arriving</span>
       </p>
+    </section>
+
+    <section id="yuu-momap-view" class="yuu-momap-view" hidden>
+      <div class="yuu-momap-filters" role="group" aria-label="Layers">
+        <label class="yuu-momap-chk"><input type="checkbox" data-layer="MOB"  checked> MOBus</label>
+        <label class="yuu-momap-chk"><input type="checkbox" data-layer="LRT"  checked> 輕軌 LRT</label>
+        <label class="yuu-momap-chk"><input type="checkbox" data-layer="MOSC" checked> 財車 Shuttle</label>
+        <span class="yuu-momap-hint">Click a route to drill in. Zoom in for more stops.</span>
+      </div>
+      <div id="yuu-momap" class="yuu-momap" aria-label="Macau network map"></div>
+      <div id="yuu-momap-detail" class="yuu-momap-detail" hidden></div>
     </section>
 
     <section id="yuu-mtr-view" class="yuu-mtr-view" hidden>
@@ -160,6 +169,6 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossorigin="" defer></script>
-<script src="./app.js?v=20260503030937-2b8a94cf" defer></script>
+<script src="./app.js?v=20260503032636-a4e37c96" defer></script>
 </body>
 </html>

@@ -907,6 +907,114 @@
 
 /* ---- MTR view ------------------------------------------------------- */
 
+/* ---- Unified Macau map view ----------------------------------------- */
+
+.yuu-momap-view { padding: 0; display: flex; flex-direction: column; gap: 10px; }
+
+.yuu-momap-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--yuu-surface);
+  border: 1px solid var(--yuu-border);
+  border-radius: var(--yuu-radius);
+  box-shadow: var(--yuu-shadow-sm);
+}
+.yuu-momap-chk {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+}
+.yuu-momap-chk input { width: 16px; height: 16px; cursor: pointer; }
+.yuu-momap-hint {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--yuu-muted);
+}
+
+.yuu-momap {
+  height: 60svh;
+  min-height: 360px;
+  max-height: 720px;
+  border-radius: var(--yuu-radius);
+  border: 1px solid var(--yuu-border);
+  z-index: 0;
+  background: #eef2f7;
+}
+
+/* Side panel that pops up when the user clicks a polyline / stop on the
+   Macau map. Compact route summary + open-in-detail button. */
+.yuu-momap-detail {
+  background: var(--yuu-surface);
+  border: 1px solid var(--yuu-border);
+  border-radius: var(--yuu-radius);
+  padding: 12px 14px;
+  box-shadow: var(--yuu-shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.yuu-momap-detail h4 { margin: 0; font-size: 0.95rem; font-weight: 600; }
+.yuu-momap-detail-meta {
+  font-size: 0.82rem;
+  color: var(--yuu-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.yuu-momap-detail-routes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.yuu-momap-detail-route {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--yuu-bg);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 120ms;
+}
+.yuu-momap-detail-route:hover { background: var(--yuu-accent-soft); }
+
+/* Stop label tooltips at very high zoom — visually subdued so they
+   don't fight the polylines. */
+.yuu-momap-stop-label {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--yuu-border);
+  padding: 1px 6px;
+  font-size: 0.7rem;
+  border-radius: 3px;
+  color: var(--yuu-text);
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.yuu-momap-stop-label::before { display: none; }
+
+/* Plan card: taxi fallback row — gray, looks distinctly different from
+   transit cards so the user knows it's an alternative rather than a
+   transit suggestion. */
+.yuu-plan-card.yuu-plan-card-taxi .yuu-plan-card-head {
+  border-left-color: #444;
+  background: #fafafa;
+}
+.yuu-plan-card.yuu-plan-card-taxi .yuu-plan-card-co { color: #444; }
+.yuu-plan-card-fare {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  color: var(--yuu-text);
+  font-size: 0.95rem;
+}
+
 .yuu-mtr-view { padding: 4px 0; }
 
 /* Diagram / Map toggle row at the top of MTR view */
