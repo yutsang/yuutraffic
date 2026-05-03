@@ -1,0 +1,67 @@
+{
+  "_note": "Seed Macau public-bus (DSAT / TCM / Transmac) data — small hand-picked sample. The full DSAT catalogue (~80 routes, ~700 stops) lives behind a CORS-closed and geo-fenced API at bis.dsat.gov.mo, so the auto-refresh path runs from the user's HK/MO Mac via scripts/build_macau_bus.py (TODO). Until that script exists, edit this file manually. Operators: TCM (澳巴) routes are typically 2-digit; Transmac (新福利) routes are 3-digit; AMCM/Reolian some have letters.",
+  "stops": {
+    "MOB_01": { "ne": "Border Gate Bus Terminus",          "nt": "關閘總站",         "la": 22.21470, "lg": 113.55015 },
+    "MOB_02": { "ne": "Outer Harbour Ferry Terminal",      "nt": "外港客運碼頭",     "la": 22.19620, "lg": 113.55630 },
+    "MOB_03": { "ne": "Senado Square / São Domingos",      "nt": "議事亭前地 / 板樟堂", "la": 22.19350, "lg": 113.54000 },
+    "MOB_04": { "ne": "A-Ma Temple",                       "nt": "媽閣廟",           "la": 22.18722, "lg": 113.53055 },
+    "MOB_05": { "ne": "Macau Tower",                       "nt": "澳門旅遊塔",       "la": 22.17750, "lg": 113.53690 },
+    "MOB_06": { "ne": "Sai Van Lake",                      "nt": "西灣湖",           "la": 22.18560, "lg": 113.53860 },
+    "MOB_07": { "ne": "Taipa Village",                     "nt": "氹仔舊城區",       "la": 22.15605, "lg": 113.55410 },
+    "MOB_08": { "ne": "Cotai Strip",                       "nt": "路氹城",           "la": 22.14625, "lg": 113.56200 },
+    "MOB_09": { "ne": "Coloane Village",                   "nt": "路環村",           "la": 22.12570, "lg": 113.55190 },
+    "MOB_10": { "ne": "Taipa Ferry Terminal",              "nt": "氹仔客運碼頭",     "la": 22.15514, "lg": 113.57881 },
+    "MOB_11": { "ne": "Macau International Airport",       "nt": "澳門國際機場",     "la": 22.15576, "lg": 113.58076 },
+    "MOB_12": { "ne": "HZMB Macau Port",                   "nt": "港珠澳大橋澳門口岸","la": 22.15410, "lg": 113.55025 },
+    "MOB_13": { "ne": "Lotus Bridge",                      "nt": "蓮花橋",           "la": 22.12990, "lg": 113.56480 },
+    "MOB_14": { "ne": "Hac Sa Beach",                      "nt": "黑沙海灘",         "la": 22.12345, "lg": 113.56785 },
+    "MOB_15": { "ne": "Iao Hon Market",                    "nt": "祐漢街市",         "la": 22.21090, "lg": 113.55400 }
+  },
+  "routes": [
+    {
+      "id": "3",
+      "name_en": "Border Gate ↔ Outer Harbour FT",
+      "name_tc": "關閘 ↔ 外港碼頭",
+      "operator": "TCM", "operator_tc": "澳巴",
+      "stops_outbound": ["MOB_01", "MOB_15", "MOB_03", "MOB_02"],
+      "frequency": "Every 6–8 min",
+      "hours": "06:00–00:30"
+    },
+    {
+      "id": "10A",
+      "name_en": "Border Gate ↔ A-Ma Temple",
+      "name_tc": "關閘 ↔ 媽閣",
+      "operator": "TCM", "operator_tc": "澳巴",
+      "stops_outbound": ["MOB_01", "MOB_15", "MOB_03", "MOB_06", "MOB_04"],
+      "frequency": "Every 8–10 min",
+      "hours": "06:00–00:00"
+    },
+    {
+      "id": "26",
+      "name_en": "Coloane ↔ Border Gate",
+      "name_tc": "路環 ↔ 關閘",
+      "operator": "Transmac", "operator_tc": "新福利",
+      "stops_outbound": ["MOB_09", "MOB_08", "MOB_07", "MOB_06", "MOB_03", "MOB_15", "MOB_01"],
+      "frequency": "Every 12 min",
+      "hours": "06:30–00:00"
+    },
+    {
+      "id": "AP1",
+      "name_en": "Airport ↔ Border Gate",
+      "name_tc": "機場 ↔ 關閘",
+      "operator": "TCM", "operator_tc": "澳巴",
+      "stops_outbound": ["MOB_11", "MOB_10", "MOB_07", "MOB_03", "MOB_15", "MOB_01"],
+      "frequency": "Every 15 min",
+      "hours": "06:30–00:30"
+    },
+    {
+      "id": "MT4",
+      "name_en": "HZMB Port ↔ Hac Sa",
+      "name_tc": "港珠澳大橋口岸 ↔ 黑沙",
+      "operator": "Transmac", "operator_tc": "新福利",
+      "stops_outbound": ["MOB_12", "MOB_10", "MOB_07", "MOB_08", "MOB_13", "MOB_09", "MOB_14"],
+      "frequency": "Every 30 min",
+      "hours": "07:00–22:30"
+    }
+  ]
+}

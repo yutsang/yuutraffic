@@ -34,19 +34,25 @@
   };
 
   const COMPANY_LABEL = {
-    KMB: "KMB / LWB",
-    CTB: "Citybus",
-    GMB: "Green Minibus",
+    KMB:  "KMB / LWB",
+    CTB:  "Citybus",
+    GMB:  "Green Minibus",
     MTRB: "MTR Bus",
-    RMB: "Red Minibus",
-    MTR: "MTR Rail",
+    RMB:  "Red Minibus",
+    MTR:  "MTR Rail",
+    MOB:  "Macau Bus",
+    LRT:  "Macau LRT",
+    MOSC: "Casino Shuttle",
   };
 
   // Top-level tabs map to the set of company codes that show up in search.
   // The Bus tab also accepts a sub-filter via the operator <select>.
   const TAB_COMPANIES = {
-    bus: new Set(["KMB", "CTB", "GMB", "MTRB", "RMB"]),
-    mtr: new Set(["MTR"]),
+    bus:     new Set(["KMB", "CTB", "GMB", "MTRB", "RMB"]),
+    mtr:     new Set(["MTR"]),
+    mobus:   new Set(["MOB"]),
+    lrt:     new Set(["LRT"]),
+    shuttle: new Set(["MOSC"]),
   };
 
   // Heuristic labels derived from the HK route-number suffix/prefix. Used to
@@ -380,7 +386,10 @@
   const mtrStationLines   = new Map(); // mtr_code → Set<line_id>
   const mtrStationsByLine = new Map(); // line_id → ordered array of codes
   const mtrJourney = { from: null, to: null }; // each is {code, name}
-  const HK_BOUNDS = [[22.13, 113.78], [22.62, 114.50]];
+  // Region bounds: covers HK + Macau + the HZMB bridge between them so the
+  // map pans freely between the two SARs without snapping back. Macau is
+  // ~22.10–22.22°N / 113.52–113.62°E; HK is ~22.13–22.62°N / 113.78–114.50°E.
+  const HK_BOUNDS = [[22.05, 113.50], [22.62, 114.50]];
 
   function initMtrToggle() {
     document.querySelectorAll(".yuu-mtr-toggle-btn").forEach((btn) => {
@@ -1662,9 +1671,15 @@
   async function selectRoute(route) {
     bumpActivity();
     // Auto-switch to the matching tab so the user doesn't have to flip
-    // between Bus and MTR manually when picking a route from search.
-    if (route.co === "MTR" && state.activeTab !== "mtr") activateTab("mtr");
-    else if (route.co !== "MTR" && state.activeTab === "mtr") activateTab("bus");
+    // between operators manually when picking a route from search.
+    const desiredTab = (() => {
+      for (const [tab, set] of Object.entries(TAB_COMPANIES)) {
+        if (set.has(route.co)) return tab;
+        if (route.partners && route.partners.some((p) => set.has(p.co))) return tab;
+      }
+      return "bus";
+    })();
+    if (state.activeTab !== desiredTab) activateTab(desiredTab);
 
     state.selectedRoute = route;
     state.selectedStop = null;
@@ -1688,6 +1703,12 @@
       yuu.dataset.joint = "false";
       yuu.style.setProperty("--yuu-route-color", c);
       yuu.style.setProperty("--yuu-route-color-soft", withAlpha(c, 0.18));
+      yuu.style.setProperty("--yuu-route-text", "#ffffff");
+    } else if (route.color) {
+      // LRT lines and casino shuttles carry per-route brand colour.
+      yuu.dataset.joint = "false";
+      yuu.style.setProperty("--yuu-route-color", route.color);
+      yuu.style.setProperty("--yuu-route-color-soft", withAlpha(route.color, 0.18));
       yuu.style.setProperty("--yuu-route-text", "#ffffff");
     } else {
       yuu.dataset.joint = "false";
@@ -1737,6 +1758,17 @@
     badges.forEach((b) => {
       parts.push(`<span class="yuu-schedule-chip">${escapeHtml(b.en)} · ${escapeHtml(b.tc)}</span>`);
     });
+    // Macau modes (MOB / LRT / MOSC) carry static frequency / operating-hours
+    // strings from the curated JSON since no live ETA API exists for them.
+    if (route.frequency) {
+      parts.push(`<span class="yuu-schedule-chip">${escapeHtml(route.frequency)}</span>`);
+    }
+    if (route.hours) {
+      parts.push(`<span class="yuu-schedule-chip">${escapeHtml(route.hours)}</span>`);
+    }
+    if (route.casino) {
+      parts.push(`<span class="yuu-schedule-chip" style="background:${route.color || '#a89060'};color:#fff;border-color:transparent">${escapeHtml(route.casino)}</span>`);
+    }
     if (allApprox) {
       parts.push(`<span class="yuu-schedule-chip yuu-approx-chip" title="Coordinates are best-effort">Approximate · 路線僅供參考</span>`);
     }
@@ -1970,7 +2002,10 @@
       GMB: "#2a9d8f",
       MTRB: "#1d3557",
       RMB: "#d62828",
-      MTR: "#1d3557",  // generic; per-line override below
+      MTR:  "#1d3557",  // generic; per-line override below
+      MOB:  "#0e7c66",  // TCM/Transmac green
+      LRT:  "#00a651",  // MLM Taipa Line green
+      MOSC: "#a89060",  // gold-ish for casino shuttles (per-route override)
     })[co] || "#00338d";
   }
 
@@ -1992,6 +2027,9 @@
   function routeColor(route) {
     if (!route) return "#00338d";
     if (route.co === "MTR" && MTR_LINE_COLOR[route.id]) return MTR_LINE_COLOR[route.id];
+    // LRT lines and casino shuttles carry their own brand colour from the
+    // export — see data/01_raw/macau_lrt.json and macau_shuttles.json.
+    if (route.color) return route.color;
     return companyColor(route.co);
   }
 

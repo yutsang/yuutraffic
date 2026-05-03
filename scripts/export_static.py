@@ -26,6 +26,12 @@ OUT = ROOT / "web" / "data"
 OUT_GEO = OUT / "geometry"
 MTR_COORDS = ROOT / "data" / "01_raw" / "mtr_station_coords.json"
 MTR_LINES_CSV_URL = "https://opendata.mtr.com.hk/data/mtr_lines_and_stations.csv"
+# Macau hand-curated sources. MLM publishes no API and DSAT's bus API is
+# CORS-closed + WAF-fenced to HK/MO IPs, so the static port relies on
+# locally-edited JSON for now. See data/01_raw/macau_*.json.
+MACAU_LRT      = ROOT / "data" / "01_raw" / "macau_lrt.json"
+MACAU_BUS      = ROOT / "data" / "01_raw" / "macau_bus.json"
+MACAU_SHUTTLES = ROOT / "data" / "01_raw" / "macau_shuttles.json"
 
 SCHEMA_VERSION = 2
 
@@ -503,6 +509,262 @@ def _export_stop_routes(conn: sqlite3.Connection) -> dict[str, list[str]]:
     return out
 
 
+def _build_macau_lrt(
+    routes: list[dict], stops: dict[str, dict],
+    stop_routes: dict[str, list[str]],
+) -> list[Path]:
+    """Inject MLM Light Rapid Transit data from data/01_raw/macau_lrt.json
+    into the export bundles.
+
+    Schema mirrors the MTR pipeline: each line becomes one route entry with
+    co='LRT'; each station becomes a stop keyed 'LRT_<code>'; geometry files
+    are written under web/data/geometry/<rk>_1.json.
+    """
+    if not MACAU_LRT.exists():
+        return []
+    raw = json.loads(MACAU_LRT.read_text(encoding="utf-8"))
+    stations = raw.get("stations", {})
+    lines    = raw.get("lines", [])
+
+    for code, s in stations.items():
+        stops[f"LRT_{code}"] = {
+            "ne": s["ne"],
+            "nt": s["nt"],
+            "la": float(s["la"]),
+            "lg": float(s["lg"]),
+            "co": "LRT",
+        }
+
+    geo_paths: list[Path] = []
+    for line in lines:
+        line_id = line["id"]
+        rk = f"LRT_{line_id}"
+        codes = line.get("stations", [])
+        if not codes:
+            continue
+        first = stations.get(codes[0], {})
+        last  = stations.get(codes[-1], {})
+
+        routes.append({
+            "rk": rk,
+            "id": line_id,
+            "co": "LRT",
+            "st": 1,
+            "pid": "",
+            "oe": _title_case_en(line.get("name_en", line_id)),
+            "de": "",
+            "ot": line.get("name_tc", line_id),
+            "dt": "",
+            "color": line.get("color", "#0091da"),
+            "termini_en": [first.get("ne", ""), last.get("ne", "")],
+            "termini_tc": [first.get("nt", ""), last.get("nt", "")],
+            "dirs": [1],
+        })
+
+        geo_stops = []
+        coords_line = []
+        for i, code in enumerate(codes, start=1):
+            s = stations.get(code)
+            if not s:
+                continue
+            stop_id = f"LRT_{code}"
+            geo_stops.append({
+                "stop_id": stop_id,
+                "stop_name": s["ne"],
+                "stop_name_tc": s["nt"],
+                "sequence": i,
+                "company": "LRT",
+                "lat": float(s["la"]),
+                "lng": float(s["lg"]),
+                "lrt_code": code,
+                "lrt_line": line_id,
+            })
+            coords_line.append([float(s["la"]), float(s["lg"])])
+            stop_routes.setdefault(stop_id, []).append(rk)
+
+        out_path = OUT_GEO / f"{rk}_1.json"
+        out_path.write_text(
+            json.dumps({
+                "route_key": rk,
+                "direction": 1,
+                "company": "LRT",
+                "line": line_id,
+                "color": line.get("color", "#0091da"),
+                "stops": geo_stops,
+                "coords": coords_line,
+            }, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        geo_paths.append(out_path)
+    return geo_paths
+
+
+def _build_macau_bus(
+    routes: list[dict], stops: dict[str, dict],
+    stop_routes: dict[str, list[str]],
+) -> list[Path]:
+    """Inject the seed DSAT bus catalogue from data/01_raw/macau_bus.json.
+
+    The full DSAT API needs HK/MO IP access; until scripts/build_macau_bus.py
+    exists this file is the only source for MOBus routes.
+    """
+    if not MACAU_BUS.exists():
+        return []
+    raw = json.loads(MACAU_BUS.read_text(encoding="utf-8"))
+    macau_stops = raw.get("stops", {})
+    macau_routes = raw.get("routes", [])
+
+    for stop_id, s in macau_stops.items():
+        stops[stop_id] = {
+            "ne": s["ne"],
+            "nt": s["nt"],
+            "la": float(s["la"]),
+            "lg": float(s["lg"]),
+            "co": "MOB",
+        }
+
+    geo_paths: list[Path] = []
+    for r in macau_routes:
+        rid = r["id"]
+        rk = f"MOB_{rid}"
+        seq = r.get("stops_outbound", [])
+        if not seq:
+            continue
+        first = macau_stops.get(seq[0], {})
+        last  = macau_stops.get(seq[-1], {})
+
+        routes.append({
+            "rk": rk,
+            "id": rid,
+            "co": "MOB",
+            "st": 1,
+            "pid": r.get("operator", ""),
+            "oe": _title_case_en(first.get("ne", "")),
+            "de": _title_case_en(last.get("ne", "")),
+            "ot": first.get("nt", ""),
+            "dt": last.get("nt", ""),
+            "operator_tc": r.get("operator_tc", ""),
+            "frequency": r.get("frequency", ""),
+            "hours": r.get("hours", ""),
+            "dirs": [1],
+        })
+
+        geo_stops = []
+        coords_line = []
+        for i, sid in enumerate(seq, start=1):
+            s = macau_stops.get(sid)
+            if not s:
+                continue
+            geo_stops.append({
+                "stop_id": sid,
+                "stop_name": s["ne"],
+                "stop_name_tc": s["nt"],
+                "sequence": i,
+                "company": "MOB",
+                "lat": float(s["la"]),
+                "lng": float(s["lg"]),
+            })
+            coords_line.append([float(s["la"]), float(s["lg"])])
+            stop_routes.setdefault(sid, []).append(rk)
+
+        out_path = OUT_GEO / f"{rk}_1.json"
+        out_path.write_text(
+            json.dumps({
+                "route_key": rk,
+                "direction": 1,
+                "company": "MOB",
+                "stops": geo_stops,
+                "coords": coords_line,
+            }, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        geo_paths.append(out_path)
+    return geo_paths
+
+
+def _build_macau_shuttles(
+    routes: list[dict], stops: dict[str, dict],
+    stop_routes: dict[str, list[str]],
+) -> list[Path]:
+    """Casino shuttle (發財車) routes — short, free shuttles between casinos
+    and transit hubs (ferry terminals, border gate, airport, HZMB port).
+    """
+    if not MACAU_SHUTTLES.exists():
+        return []
+    raw = json.loads(MACAU_SHUTTLES.read_text(encoding="utf-8"))
+    sc_stops = raw.get("stops", {})
+    sc_routes = raw.get("routes", [])
+
+    for code, s in sc_stops.items():
+        stop_id = f"MOSC_{code}"
+        stops[stop_id] = {
+            "ne": s["ne"],
+            "nt": s["nt"],
+            "la": float(s["la"]),
+            "lg": float(s["lg"]),
+            "co": "MOSC",
+        }
+
+    geo_paths: list[Path] = []
+    for r in sc_routes:
+        rid = r["id"]
+        rk = f"MOSC_{rid}"
+        from_code = r["from"]
+        to_code   = r["to"]
+        from_s = sc_stops.get(from_code)
+        to_s   = sc_stops.get(to_code)
+        if not from_s or not to_s:
+            continue
+
+        routes.append({
+            "rk": rk,
+            "id": rid,
+            "co": "MOSC",
+            "st": 1,
+            "pid": r.get("casino", ""),
+            "oe": _title_case_en(from_s["ne"]),
+            "de": _title_case_en(to_s["ne"]),
+            "ot": from_s["nt"],
+            "dt": to_s["nt"],
+            "casino": r.get("casino", ""),
+            "color": r.get("color", "#a89060"),
+            "frequency": r.get("frequency", ""),
+            "hours": r.get("hours", ""),
+            "dirs": [1],
+        })
+
+        geo_stops = [
+            {"stop_id": f"MOSC_{from_code}", "stop_name": from_s["ne"],
+             "stop_name_tc": from_s["nt"], "sequence": 1, "company": "MOSC",
+             "lat": float(from_s["la"]), "lng": float(from_s["lg"])},
+            {"stop_id": f"MOSC_{to_code}",   "stop_name": to_s["ne"],
+             "stop_name_tc": to_s["nt"],   "sequence": 2, "company": "MOSC",
+             "lat": float(to_s["la"]),   "lng": float(to_s["lg"])},
+        ]
+        coords_line = [
+            [float(from_s["la"]), float(from_s["lg"])],
+            [float(to_s["la"]),   float(to_s["lg"])],
+        ]
+        stop_routes.setdefault(f"MOSC_{from_code}", []).append(rk)
+        stop_routes.setdefault(f"MOSC_{to_code}",   []).append(rk)
+
+        out_path = OUT_GEO / f"{rk}_1.json"
+        out_path.write_text(
+            json.dumps({
+                "route_key": rk,
+                "direction": 1,
+                "company": "MOSC",
+                "casino": r.get("casino", ""),
+                "color": r.get("color", "#a89060"),
+                "stops": geo_stops,
+                "coords": coords_line,
+            }, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        geo_paths.append(out_path)
+    return geo_paths
+
+
 def _write_json(path: Path, data) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -566,6 +828,14 @@ def main() -> int:
     for p in mtr_paths:
         fresh.add(p.name)
 
+    # Macau modes — all hand-curated since DSAT/MLM publish no open API and
+    # casino shuttles aren't APIs at all.
+    lrt_paths = _build_macau_lrt(routes, stops, stop_routes)
+    bus_paths = _build_macau_bus(routes, stops, stop_routes)
+    sc_paths  = _build_macau_shuttles(routes, stops, stop_routes)
+    for p in (*lrt_paths, *bus_paths, *sc_paths):
+        fresh.add(p.name)
+
     _write_json(OUT / "routes.json", routes)
     _write_json(OUT / "stops.json", stops)
     _write_json(OUT / "stop_routes.json", stop_routes)
@@ -585,13 +855,18 @@ def main() -> int:
                 "routes": len(routes),
                 "stops": len(stops),
                 "stop_routes": len(stop_routes),
-                "geometry": copied + len(mtr_paths),
+                "geometry": copied + len(mtr_paths) + len(lrt_paths) + len(bus_paths) + len(sc_paths),
                 "mtr_lines": len(mtr_routes),
+                "macau_lrt": len(lrt_paths),
+                "macau_bus": len(bus_paths),
+                "macau_shuttles": len(sc_paths),
             },
         },
     )
     print(
-        f"Exported {len(routes)} routes, {len(stops)} stops, {copied} geometry files."
+        f"Exported {len(routes)} routes, {len(stops)} stops, "
+        f"{copied + len(mtr_paths) + len(lrt_paths) + len(bus_paths) + len(sc_paths)} geometry files "
+        f"(macau: {len(lrt_paths)} lrt + {len(bus_paths)} bus + {len(sc_paths)} shuttles)."
     )
     return 0
 

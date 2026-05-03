@@ -51,6 +51,18 @@
   --yuu-route-color: #d62828; --yuu-route-text: #ffffff;
   --yuu-route-color-soft: #fad9d9;
 }
+#yuu[data-company="MOB"]  {
+  --yuu-route-color: #0e7c66; --yuu-route-text: #ffffff;
+  --yuu-route-color-soft: #d4e8e0;
+}
+#yuu[data-company="LRT"]  {
+  --yuu-route-color: #00a651; --yuu-route-text: #ffffff;
+  --yuu-route-color-soft: #d2efd9;
+}
+#yuu[data-company="MOSC"] {
+  --yuu-route-color: #a89060; --yuu-route-text: #ffffff;
+  --yuu-route-color-soft: #ece2cc;
+}
 
 /* ---- Layout ---------------------------------------------------------- */
 
@@ -357,6 +369,9 @@
 .yuu-badge.MTRB { background: #1d3557; color: #fff; }
 .yuu-badge.RMB  { background: #d62828; color: #fff; }
 .yuu-badge.MTR  { background: var(--yuu-route-color, #1d3557); color: #fff; }
+.yuu-badge.MOB  { background: #0e7c66; color: #fff; }
+.yuu-badge.LRT  { background: var(--yuu-route-color, #00a651); color: #fff; }
+.yuu-badge.MOSC { background: var(--yuu-route-color, #a89060); color: #fff; }
 
 /* ---- Route panel ---------------------------------------------------- */
 
@@ -828,7 +843,14 @@
   display: flex;
   gap: 4px;
   flex-shrink: 0;
+  /* With 6 tabs (Bus/MTR/MOBus/輕軌/財車/Plan) the strip overflows narrow
+     viewports. Allow horizontal scroll instead of wrapping to two rows. */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  max-width: 100%;
 }
+.yuu-mode-tabs::-webkit-scrollbar { display: none; }
 
 .yuu-tab {
   font-family: inherit;
