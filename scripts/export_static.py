@@ -78,6 +78,28 @@ def _load_mtr_rail_prebuilt(line: str) -> list[list[float]] | None:
     return out if len(out) >= 10 else None
 
 
+# Macau bounding box for clipping OSRM-routed polylines. OSRM occasionally
+# routes a Macau-internal trip via a brief Zhuhai segment when the network
+# graph treats the border crossing as cheap; filter such points out so the
+# rendered line stays inside Macau. Slightly buffered north (Border Gate
+# is right on the line) and east (HZMB artificial island).
+MO_BBOX = (22.08, 113.49, 22.225, 113.625)
+
+
+def _clip_to_macau(coords: list[list[float]]) -> list[list[float]]:
+    """Drop polyline points outside ``MO_BBOX``. If filtering removes
+    everything (degenerate result), keep the original so callers can still
+    show *something* rather than an empty polyline. Adjacent surviving
+    points reconnect with a straight segment, which is acceptable since
+    the typical leak is a 50–200 m loop into Zhuhai mainland."""
+    s_lat, s_lng, n_lat, n_lng = MO_BBOX
+    out = [
+        [la, lg] for la, lg in coords
+        if s_lat <= la <= n_lat and s_lng <= lg <= n_lng
+    ]
+    return out if len(out) >= 2 else coords
+
+
 def _load_macau_prebuilt(rk: str) -> list[list[float]] | None:
     """Return precomputed [[lat, lng], ...] for ``{rk}_1.json`` if valid, else None."""
     p = MACAU_GEO_DIR / f"{rk}_1.json"
@@ -99,7 +121,9 @@ def _load_macau_prebuilt(rk: str) -> list[list[float]] | None:
             and isinstance(pt[1], (int, float))
         ):
             out.append([float(pt[0]), float(pt[1])])
-    return out if len(out) >= 2 else None
+    if len(out) < 2:
+        return None
+    return _clip_to_macau(out)
 
 
 def _load_macau_lrt_prebuilt(line_id: str) -> list[list[float]] | None:

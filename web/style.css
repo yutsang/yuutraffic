@@ -1051,25 +1051,25 @@
 }
 
 .yuu-shuttle-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 12px;
-  align-items: center;
-  padding: 10px 14px;
   background: var(--yuu-surface);
   border: 1px solid var(--yuu-border);
   border-radius: var(--yuu-radius);
   box-shadow: var(--yuu-shadow-sm);
   cursor: pointer;
-  transition: border-color 120ms, transform 120ms;
+  transition: border-color 120ms;
+  overflow: hidden;
 }
-.yuu-shuttle-row:hover {
+.yuu-shuttle-row:hover { border-color: var(--yuu-accent); }
+.yuu-shuttle-row.expanded {
   border-color: var(--yuu-accent);
-  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.10);
 }
-.yuu-shuttle-row-casino {
-  font-weight: 600;
-  font-size: 0.95rem;
+.yuu-shuttle-row-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
 }
 .yuu-shuttle-row-direction {
   display: flex;
@@ -1095,8 +1095,59 @@
   color: #00338d;
   font-variant-numeric: tabular-nums;
 }
-.yuu-shuttle-row-closed {
-  color: #6b7280;
+.yuu-shuttle-row-closed { color: #6b7280; }
+.yuu-shuttle-row-chevron {
+  color: var(--yuu-muted);
+  font-size: 0.85rem;
+  transition: transform 150ms;
+}
+.yuu-shuttle-row.expanded .yuu-shuttle-row-chevron {
+  transform: rotate(90deg);
+  color: var(--yuu-accent);
+}
+
+/* Detail body — hidden by default, expands when row gets `.expanded`. */
+.yuu-shuttle-row-detail {
+  display: none;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--yuu-border);
+  background: var(--yuu-bg);
+  font-size: 0.85rem;
+  color: var(--yuu-text);
+}
+.yuu-shuttle-row.expanded .yuu-shuttle-row-detail { display: block; }
+
+.yuu-shuttle-stops {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--yuu-border);
+  margin-bottom: 8px;
+}
+.yuu-shuttle-stop {
+  display: inline-flex;
+  flex-direction: column;
+}
+.yuu-shuttle-stop strong { font-size: 0.95rem; }
+.yuu-shuttle-stop-arrow {
+  color: var(--yuu-muted);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.yuu-shuttle-row-info {
+  display: flex;
+  gap: 6px;
+  color: var(--yuu-muted);
+  font-size: 0.78rem;
+  flex-wrap: wrap;
+}
+.yuu-shuttle-row-clocklist {
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+  color: #00338d;
+  font-weight: 500;
 }
 
 .yuu-shuttle-empty {

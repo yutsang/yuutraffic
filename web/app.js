@@ -297,6 +297,7 @@
             color: r.color || "#a89060",
             weight: 4, opacity: 0.85,
             dashArray: "6 4",
+            _rk: r.rk,
           }).bindTooltip(`${r.casino || ""} ↔ ${hubStop.nt || hubStop.ne}`, { sticky: true })
             .addTo(shuttleMapLayer);
           coords.forEach((p) => points.push(p));
@@ -313,8 +314,8 @@
             fillColor: r.color || "#a89060",
             weight: 2,
             fillOpacity: 0.9,
+            _rk: r.rk,
           }).bindTooltip(`${r.casino || ""} · ${otherStop.nt || otherStop.ne}`)
-            .on("click", () => selectRoute(r))
             .addTo(shuttleMapLayer);
           points.push([otherStop.la, otherStop.lg]);
         }
@@ -372,7 +373,6 @@
       `<div class="yuu-shuttle-section-title">${matches.length} shuttles · ${escapeHtml(hubTc)} · ${escapeHtml(hubEn)}</div>` +
       enriched.map(({ r, next, clock }) => {
         const c = r.color || "#a89060";
-        // The casino is whichever end ISN'T the hub.
         const otherEn = r.oe === hubEn ? r.de : r.oe;
         const otherTc = r.ot === hubTc ? r.dt : r.ot;
         let meta;
@@ -385,26 +385,90 @@
         } else {
           meta = `<span>${escapeHtml(r.frequency || "")}</span><span>${escapeHtml(r.hours || "")}</span>`;
         }
-        return `<div class="yuu-shuttle-row" data-rk="${escapeHtml(r.rk)}">
-          <span class="yuu-badge MOSC" style="background:${c};color:#fff">${escapeHtml(r.casino || "Shuttle")}</span>
-          <div class="yuu-shuttle-row-direction">
-            <div>${escapeHtml(otherEn || "")}</div>
-            <div class="yuu-shuttle-row-tc">${escapeHtml(otherTc || "")}</div>
+        // The detail body is rendered up-front but kept display:none via
+        // CSS — only revealed when the row gets the `.expanded` class.
+        // Stop list, full clock-time list, and frequency live here.
+        const stopsLine = `<div class="yuu-shuttle-stops">
+          <span class="yuu-shuttle-stop"><strong>${escapeHtml(hubTc)}</strong> · ${escapeHtml(hubEn)}</span>
+          <span class="yuu-shuttle-stop-arrow">→</span>
+          <span class="yuu-shuttle-stop"><strong>${escapeHtml(otherTc)}</strong> · ${escapeHtml(otherEn)}</span>
+        </div>`;
+        const fullClock = clock?.length
+          ? `<div class="yuu-shuttle-row-clocklist">Next departures · ${escapeHtml(clock.join(" · "))}</div>`
+          : "";
+        const detail = `<div class="yuu-shuttle-row-detail">
+          ${stopsLine}
+          <div class="yuu-shuttle-row-info">
+            <span>${escapeHtml(r.frequency || "")}</span>
+            <span>·</span>
+            <span>service ${escapeHtml(r.hours || "")}</span>
           </div>
-          <div class="yuu-shuttle-row-meta">${meta}</div>
+          ${fullClock}
+        </div>`;
+        return `<div class="yuu-shuttle-row" data-rk="${escapeHtml(r.rk)}">
+          <div class="yuu-shuttle-row-head">
+            <span class="yuu-badge MOSC" style="background:${c};color:#fff">${escapeHtml(r.casino || "Shuttle")}</span>
+            <div class="yuu-shuttle-row-direction">
+              <div>${escapeHtml(otherEn || "")}</div>
+              <div class="yuu-shuttle-row-tc">${escapeHtml(otherTc || "")}</div>
+            </div>
+            <div class="yuu-shuttle-row-meta">${meta}</div>
+            <span class="yuu-shuttle-row-chevron" aria-hidden="true">▸</span>
+          </div>
+          ${detail}
         </div>`;
       }).join("");
 
+    // Click toggles in-place expand. At most one row open at a time.
+    // Side-effect: highlights that route on the side map.
     host.querySelectorAll(".yuu-shuttle-row").forEach((row) => {
       row.addEventListener("click", () => {
-        const rk = row.dataset.rk;
-        const r = (state.routes || []).find((x) => x.rk === rk);
-        if (r) selectRoute(r);
+        const isOpen = row.classList.contains("expanded");
+        host.querySelectorAll(".yuu-shuttle-row.expanded").forEach((r) =>
+          r.classList.remove("expanded"));
+        if (!isOpen) {
+          row.classList.add("expanded");
+          highlightShuttleOnMap(row.dataset.rk);
+        } else {
+          highlightShuttleOnMap(null);
+        }
       });
     });
 
     // Plot all the matched routes on the desktop-only side map.
     renderShuttleHubMap(hubCode, stopId, matches).catch((e) => console.warn(e));
+  }
+
+  // De-emphasise every shuttle polyline except the one matching `rk`.
+  // When `rk` is null, restores all polylines to full opacity.
+  function highlightShuttleOnMap(rk) {
+    if (!shuttleMapLayer) return;
+    shuttleMapLayer.eachLayer((layer) => {
+      if (layer instanceof L.Polyline) {
+        const isActive = layer.options._rk === rk;
+        layer.setStyle({
+          opacity: rk ? (isActive ? 1 : 0.15) : 0.85,
+          weight:  isActive ? 6 : 4,
+        });
+        if (isActive && layer.bringToFront) layer.bringToFront();
+      } else if (layer instanceof L.CircleMarker) {
+        layer.setStyle({
+          opacity:     rk ? (layer.options._rk === rk ? 1 : 0.3) : 1,
+          fillOpacity: rk ? (layer.options._rk === rk ? 1 : 0.3) : 0.9,
+        });
+      }
+    });
+    if (rk && shuttleMap) {
+      let bounds = null;
+      shuttleMapLayer.eachLayer((l) => {
+        if (l.options._rk === rk && l.getBounds) {
+          bounds = bounds ? bounds.extend(l.getBounds()) : l.getBounds();
+        }
+      });
+      if (bounds && bounds.isValid()) {
+        shuttleMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+      }
+    }
   }
 
   // Synthesised concrete next-departure timetable for Macau routes. Each
