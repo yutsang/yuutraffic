@@ -230,12 +230,100 @@
 
   let shuttleWired = false;
   let activeShuttleHub = null;
+  let shuttleMap = null;
+  let shuttleMapLayer = null;
   function ensureShuttleViewWired() {
     if (shuttleWired) return;
     shuttleWired = true;
     document.querySelectorAll(".yuu-hub-btn").forEach((btn) => {
       btn.addEventListener("click", () => selectShuttleHub(btn.dataset.hub, btn.dataset.stop));
     });
+  }
+
+  function ensureShuttleMapRendered() {
+    if (shuttleMap) {
+      setTimeout(() => shuttleMap.invalidateSize(), 0);
+      return;
+    }
+    const el = document.getElementById("yuu-shuttle-map");
+    if (!el) return;
+    // Skip on mobile — CSS hides the container so Leaflet would init
+    // into a 0×0 div, which spams console warnings.
+    if (el.offsetWidth === 0 || el.offsetHeight === 0) return;
+    shuttleMap = L.map("yuu-shuttle-map", {
+      zoomControl: true,
+      maxBounds: MO_TIGHT_BOUNDS,
+      maxBoundsViscosity: 0.85,
+      minZoom: 11,
+    }).fitBounds(MO_TIGHT_BOUNDS);
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+      attribution: '&copy; OSM &copy; CARTO',
+      subdomains: "abcd",
+      maxZoom: 19,
+      minZoom: 11,
+      bounds: MO_TIGHT_BOUNDS,
+    }).addTo(shuttleMap);
+  }
+
+  // Plot the hub + every casino reachable from it, with the shuttle
+  // polyline (road-routed) drawn between them. Called whenever the user
+  // picks a hub button.
+  async function renderShuttleHubMap(hubCode, hubStopId, routes) {
+    ensureShuttleMapRendered();
+    if (!shuttleMap) return;
+    if (shuttleMapLayer) shuttleMapLayer.clearLayers();
+    else shuttleMapLayer = L.layerGroup().addTo(shuttleMap);
+
+    const stops = await ensureStopsLoaded();
+    const hubStop = stops[hubStopId];
+    if (!hubStop) return;
+
+    // Hub marker — bigger, dark, distinct from casino dots.
+    const hub = L.marker([hubStop.la, hubStop.lg], {
+      title: hubStop.nt || hubStop.ne,
+    }).bindTooltip(`${hubStop.nt || ""} · ${hubStop.ne || ""}`, { permanent: false });
+    hub.addTo(shuttleMapLayer);
+
+    const points = [[hubStop.la, hubStop.lg]];
+
+    // Each shuttle: load the prebuilt polyline, draw it in the casino's
+    // brand colour, plus a marker at the casino end.
+    await Promise.all(routes.map(async (r) => {
+      try {
+        const geo = await fetchJson(`${DATA_BASE}/geometry/${r.rk}_1.json`);
+        const coords = (geo.coords || []).filter((p) => Array.isArray(p) && typeof p[0] === "number");
+        if (coords.length >= 2) {
+          L.polyline(coords, {
+            color: r.color || "#a89060",
+            weight: 4, opacity: 0.85,
+            dashArray: "6 4",
+          }).bindTooltip(`${r.casino || ""} ↔ ${hubStop.nt || hubStop.ne}`, { sticky: true })
+            .addTo(shuttleMapLayer);
+          coords.forEach((p) => points.push(p));
+        }
+        // Casino marker = whichever stop on the route ISN'T the hub.
+        const otherStopId = (geo.stops || [])
+          .map((s) => s.stop_id)
+          .find((sid) => sid !== hubStopId);
+        const otherStop = otherStopId && stops[otherStopId];
+        if (otherStop) {
+          L.circleMarker([otherStop.la, otherStop.lg], {
+            radius: 7,
+            color: r.color || "#a89060",
+            fillColor: r.color || "#a89060",
+            weight: 2,
+            fillOpacity: 0.9,
+          }).bindTooltip(`${r.casino || ""} · ${otherStop.nt || otherStop.ne}`)
+            .on("click", () => selectRoute(r))
+            .addTo(shuttleMapLayer);
+          points.push([otherStop.la, otherStop.lg]);
+        }
+      } catch { /* missing geometry → skip */ }
+    }));
+
+    if (points.length > 1) {
+      shuttleMap.fitBounds(points, { padding: [40, 40], maxZoom: 14 });
+    }
   }
 
   function selectShuttleHub(hubCode, stopId) {
@@ -268,7 +356,11 @@
     }
 
     // Sort: open routes first (by next-departure asc), closed last.
-    const enriched = matches.map((r) => ({ r, next: nextDepartureEstimate(r) }));
+    const enriched = matches.map((r) => ({
+      r,
+      next:  nextDepartureEstimate(r),
+      clock: nextDepartureClockTimes(r, 3),
+    }));
     enriched.sort((a, b) => {
       const ao = a.next?.kind === "running" ? a.next.nextMin : 9999;
       const bo = b.next?.kind === "running" ? b.next.nextMin : 9999;
@@ -278,16 +370,21 @@
 
     host.innerHTML =
       `<div class="yuu-shuttle-section-title">${matches.length} shuttles · ${escapeHtml(hubTc)} · ${escapeHtml(hubEn)}</div>` +
-      enriched.map(({ r, next }) => {
+      enriched.map(({ r, next, clock }) => {
         const c = r.color || "#a89060";
         // The casino is whichever end ISN'T the hub.
         const otherEn = r.oe === hubEn ? r.de : r.oe;
         const otherTc = r.ot === hubTc ? r.dt : r.ot;
-        const meta = next?.kind === "running"
-          ? `<span class="yuu-shuttle-row-next">⏱ Next ~${next.nextMin} min</span><span>last ${next.lastHHMM}</span>`
-          : next?.kind === "closed"
-          ? `<span class="yuu-shuttle-row-closed">Closed</span><span>service ${next.firstHHMM}–${next.lastHHMM}</span>`
-          : `<span>${escapeHtml(r.frequency || "")}</span><span>${escapeHtml(r.hours || "")}</span>`;
+        let meta;
+        if (next?.kind === "running" && clock?.length) {
+          meta = `<span class="yuu-shuttle-row-next">⏱ ${escapeHtml(clock.slice(0,2).join(" · "))}</span><span>last ${next.lastHHMM}</span>`;
+        } else if (next?.kind === "running") {
+          meta = `<span class="yuu-shuttle-row-next">⏱ Next ~${next.nextMin} min</span><span>last ${next.lastHHMM}</span>`;
+        } else if (next?.kind === "closed") {
+          meta = `<span class="yuu-shuttle-row-closed">Closed</span><span>service ${next.firstHHMM}–${next.lastHHMM}</span>`;
+        } else {
+          meta = `<span>${escapeHtml(r.frequency || "")}</span><span>${escapeHtml(r.hours || "")}</span>`;
+        }
         return `<div class="yuu-shuttle-row" data-rk="${escapeHtml(r.rk)}">
           <span class="yuu-badge MOSC" style="background:${c};color:#fff">${escapeHtml(r.casino || "Shuttle")}</span>
           <div class="yuu-shuttle-row-direction">
@@ -305,6 +402,45 @@
         if (r) selectRoute(r);
       });
     });
+
+    // Plot all the matched routes on the desktop-only side map.
+    renderShuttleHubMap(hubCode, stopId, matches).catch((e) => console.warn(e));
+  }
+
+  // Synthesised concrete next-departure timetable for Macau routes. Each
+  // casino publishes a fixed daily timetable but we don't have it; given
+  // a route's `frequency: "Every 15 min"` + `hours: "07:00–23:30"` we
+  // generate the next N HH:MM slots starting from now (rounded up to the
+  // next interval). Returns an array of strings or [] if outside service.
+  function nextDepartureClockTimes(route, count) {
+    if (!route?.hours) return null;
+    const m = route.hours.match(/(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})/);
+    if (!m) return null;
+    let lastH = +m[3];
+    const startMin = (+m[1]) * 60 + (+m[2]);
+    if (lastH < +m[1]) lastH += 24;             // wraps past midnight
+    const endMin = lastH * 60 + (+m[4]);
+    const fm = (route.frequency || "").match(/(\d+)(?:\s*[–-]\s*(\d+))?/);
+    const freqMin = fm ? (+fm[1]) : 15;          // pick the lower bound
+    const now = new Date();
+    let curMin = now.getHours() * 60 + now.getMinutes();
+    // Wrap into post-midnight slots if we're before the start window AND
+    // the service is currently in its post-midnight tail (e.g. it's 00:15
+    // and last bus is 00:30).
+    if (curMin < startMin && curMin + 24 * 60 <= endMin) curMin += 24 * 60;
+    let nextMin = curMin <= startMin
+      ? startMin
+      : Math.ceil((curMin - startMin) / freqMin) * freqMin + startMin;
+    if (nextMin > endMin) return [];
+    const out = [];
+    const want = count || 3;
+    while (out.length < want && nextMin <= endMin) {
+      const h = Math.floor(nextMin / 60) % 24;
+      const mm = nextMin % 60;
+      out.push(`${h.toString().padStart(2,"0")}:${mm.toString().padStart(2,"0")}`);
+      nextMin += freqMin;
+    }
+    return out;
   }
 
   // For Macau routes (no live ETA available — DSAT API CORS-closed) derive
@@ -2134,9 +2270,13 @@
     // Surface a "next bus ~Xmin" estimate when within service window so the
     // user gets a one-glance answer without doing the math.
     const nextDep = nextDepartureEstimate(route);
+    const clock   = nextDepartureClockTimes(route, 3);
     if (nextDep) {
-      if (nextDep.kind === "running") {
-        parts.push(`<span class="yuu-schedule-chip yuu-next-chip" title="Average wait — schedule-based, no live GPS">⏱ Next ~${nextDep.nextMin} min · last ${nextDep.lastHHMM}</span>`);
+      if (nextDep.kind === "running" && clock?.length) {
+        parts.push(`<span class="yuu-schedule-chip yuu-next-chip" title="Synthesised from frequency + hours — actual times may shift slightly">⏱ ${escapeHtml(clock.join(" · "))}</span>`);
+        parts.push(`<span class="yuu-schedule-chip">last ${nextDep.lastHHMM}</span>`);
+      } else if (nextDep.kind === "running") {
+        parts.push(`<span class="yuu-schedule-chip yuu-next-chip">⏱ Next ~${nextDep.nextMin} min · last ${nextDep.lastHHMM}</span>`);
       } else {
         parts.push(`<span class="yuu-schedule-chip yuu-next-chip yuu-next-closed">Closed · service ${nextDep.firstHHMM}–${nextDep.lastHHMM}</span>`);
       }
