@@ -937,6 +937,21 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Next-departure chip — schedule-based estimate for MO routes that have
+   no live ETA. Distinct blue tint so the user knows it's an estimate, not
+   a real-time prediction. */
+.yuu-next-chip {
+  background: #e6f0fb;
+  color: #00338d;
+  border-color: #c5d8ec;
+  font-variant-numeric: tabular-nums;
+}
+.yuu-next-chip.yuu-next-closed {
+  background: #f3f4f6;
+  color: #6b7280;
+  border-color: #e5e7eb;
+}
+
 /* Plan-result section title for the taxi block (ships below transit) — a
    separator that visually demotes taxi from primary suggestions. */
 .yuu-plan-taxi-title {
@@ -949,6 +964,128 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: #0e7c44;
+}
+
+/* ---- Shuttle (財車) hub-first view ---------------------------------- */
+
+.yuu-shuttle-view { padding: 0; display: flex; flex-direction: column; gap: 12px; }
+
+.yuu-shuttle-intro {
+  font-size: 0.85rem;
+  color: var(--yuu-muted);
+  padding: 0 4px;
+}
+
+.yuu-shuttle-hubs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.yuu-hub-btn {
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 14px 12px;
+  background: var(--yuu-surface);
+  color: var(--yuu-text);
+  border: 1px solid var(--yuu-border);
+  border-radius: var(--yuu-radius);
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms, border-color 120ms;
+}
+.yuu-hub-btn small {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--yuu-muted);
+  letter-spacing: 0.02em;
+}
+.yuu-hub-btn:hover {
+  background: var(--yuu-accent-soft);
+  border-color: var(--yuu-accent);
+}
+.yuu-hub-btn.active {
+  background: var(--yuu-accent);
+  color: #ffffff;
+  border-color: var(--yuu-accent);
+}
+.yuu-hub-btn.active small { color: rgba(255,255,255,0.85); }
+
+.yuu-shuttle-routes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.yuu-shuttle-section-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--yuu-muted);
+  margin-top: 8px;
+}
+
+.yuu-shuttle-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--yuu-surface);
+  border: 1px solid var(--yuu-border);
+  border-radius: var(--yuu-radius);
+  box-shadow: var(--yuu-shadow-sm);
+  cursor: pointer;
+  transition: border-color 120ms, transform 120ms;
+}
+.yuu-shuttle-row:hover {
+  border-color: var(--yuu-accent);
+  transform: translateY(-1px);
+}
+.yuu-shuttle-row-casino {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.yuu-shuttle-row-direction {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.yuu-shuttle-row-tc {
+  font-size: 0.78rem;
+  color: var(--yuu-muted);
+}
+.yuu-shuttle-row-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 0.78rem;
+  color: var(--yuu-muted);
+  white-space: nowrap;
+}
+.yuu-shuttle-row-next {
+  font-weight: 700;
+  color: #00338d;
+  font-variant-numeric: tabular-nums;
+}
+.yuu-shuttle-row-closed {
+  color: #6b7280;
+}
+
+.yuu-shuttle-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--yuu-muted);
+  background: var(--yuu-surface);
+  border: 1px dashed var(--yuu-border);
+  border-radius: var(--yuu-radius);
 }
 
 .yuu-mtr-view { padding: 4px 0; }
