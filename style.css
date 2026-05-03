@@ -852,6 +852,40 @@
 }
 .yuu-mode-tabs::-webkit-scrollbar { display: none; }
 
+/* Region switch (HK | Macau) — segmented pill that gates which mode tabs
+   are visible. Sits on its own row above the mode tabs so the user can
+   scan the active region at a glance. */
+.yuu-region-switch {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 0;
+  border: 1px solid var(--yuu-border);
+  border-radius: var(--yuu-radius);
+  background: var(--yuu-surface);
+  padding: 2px;
+  box-shadow: var(--yuu-shadow-sm);
+  flex-shrink: 0;
+}
+.yuu-region {
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 6px 14px;
+  background: transparent;
+  color: var(--yuu-muted);
+  border: 0;
+  border-radius: calc(var(--yuu-radius) - 2px);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms, color 120ms;
+}
+.yuu-region:hover { color: var(--yuu-text); }
+.yuu-region.active {
+  background: var(--yuu-accent);
+  color: #ffffff;
+}
+
 .yuu-tab {
   font-family: inherit;
   font-size: 0.85rem;

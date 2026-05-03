@@ -19,19 +19,23 @@
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin="" />
-<link rel="stylesheet" href="./style.css?v=20260503025816-a27cffb5" />
+<link rel="stylesheet" href="./style.css?v=20260503030930-2b8a94cf" />
 </head>
 <body>
 <div id="yuu" class="yuu-widget">
   <header class="yuu-header">
     <h1 class="yuu-title" hidden>Traffic</h1>
+    <div class="yuu-region-switch" role="tablist" aria-label="Region">
+      <button type="button" class="yuu-region active" data-region="hk" role="tab" aria-selected="true">HK 香港</button>
+      <button type="button" class="yuu-region"        data-region="mo" role="tab" aria-selected="false">澳門 Macau</button>
+    </div>
     <div class="yuu-mode-tabs" role="tablist">
-      <button type="button" class="yuu-tab active" data-tab="bus"     role="tab" aria-selected="true">Bus</button>
-      <button type="button" class="yuu-tab"        data-tab="mtr"     role="tab" aria-selected="false">MTR</button>
-      <button type="button" class="yuu-tab"        data-tab="mobus"   role="tab" aria-selected="false">MOBus</button>
-      <button type="button" class="yuu-tab"        data-tab="lrt"     role="tab" aria-selected="false">輕軌</button>
-      <button type="button" class="yuu-tab"        data-tab="shuttle" role="tab" aria-selected="false">財車</button>
-      <button type="button" class="yuu-tab"        data-tab="plan"    role="tab" aria-selected="false">Plan trip</button>
+      <button type="button" class="yuu-tab active" data-tab="bus"     data-region="hk"  role="tab" aria-selected="true">Bus</button>
+      <button type="button" class="yuu-tab"        data-tab="mtr"     data-region="hk"  role="tab" aria-selected="false">MTR</button>
+      <button type="button" class="yuu-tab"        data-tab="mobus"   data-region="mo"  role="tab" aria-selected="false" hidden>MOBus</button>
+      <button type="button" class="yuu-tab"        data-tab="lrt"     data-region="mo"  role="tab" aria-selected="false" hidden>輕軌 LRT</button>
+      <button type="button" class="yuu-tab"        data-tab="shuttle" data-region="mo"  role="tab" aria-selected="false" hidden>財車</button>
+      <button type="button" class="yuu-tab"        data-tab="plan"    data-region="any" role="tab" aria-selected="false">Plan</button>
     </div>
     <div class="yuu-search" id="yuu-explore-controls">
       <input type="search"
@@ -156,6 +160,6 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossorigin="" defer></script>
-<script src="./app.js?v=20260503025816-a27cffb5" defer></script>
+<script src="./app.js?v=20260503030930-2b8a94cf" defer></script>
 </body>
 </html>
