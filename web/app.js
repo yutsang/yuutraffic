@@ -290,15 +290,46 @@
     );
   }
 
-  // Three tabs:
-  //   Bus  → search across KMB/CTB/GMB/MTRB/RMB; operator <select> narrows
-  //   MTR  → MTR rail only; operator <select> hidden
-  //   Plan → trip planner panel (search input hidden)
+  // Tab → region map. The region switch (HK | Macau) hides tabs whose
+  // data-region doesn't match the active region; "any" tabs (e.g. Plan)
+  // show in both regions.
+  const TAB_REGION = {
+    bus: "hk", mtr: "hk",
+    mobus: "mo", lrt: "mo", shuttle: "mo",
+    plan: "any",
+  };
+  const REGION_DEFAULT_TAB = { hk: "bus", mo: "mobus" };
+
+  // Six tabs gated by the HK / Macau region switch:
+  //   HK  → Bus / MTR / Plan
+  //   MO  → MOBus / 輕軌 / 財車 / Plan
   function initModeTabs() {
     document.querySelectorAll(".yuu-tab").forEach((btn) => {
       btn.addEventListener("click", () => activateTab(btn.dataset.tab));
     });
-    activateTab("bus");
+    document.querySelectorAll(".yuu-region").forEach((btn) => {
+      btn.addEventListener("click", () => activateRegion(btn.dataset.region));
+    });
+    activateRegion("hk");
+  }
+
+  function activateRegion(region) {
+    state.activeRegion = region;
+    document.querySelectorAll(".yuu-region").forEach((b) => {
+      const on = b.dataset.region === region;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    document.querySelectorAll(".yuu-tab").forEach((b) => {
+      const r = b.dataset.region;
+      b.hidden = !(r === region || r === "any");
+    });
+    // If the previously-active tab no longer belongs to this region, fall
+    // back to the region's default landing tab.
+    const cur = state.activeTab;
+    if (!cur || (TAB_REGION[cur] !== region && TAB_REGION[cur] !== "any")) {
+      activateTab(REGION_DEFAULT_TAB[region]);
+    }
   }
 
   function activateTab(tab) {
@@ -317,6 +348,10 @@
 
     const mtrView = $("yuu-mtr-view");
     const map     = $("yuu-map");
+
+    // Drop any lingering Macau network overlay from the previous tab. Will
+    // be re-shown below if the new tab also wants one.
+    hideModeNetwork();
 
     if (tab === "plan") {
       if (explore) explore.hidden = true;
@@ -346,7 +381,11 @@
       return;
     }
 
-    // Bus tab
+    // Bus tab + MO tabs (mobus / lrt / shuttle) all share the bus-style flow:
+    // a route list / search above the main map. The MO tabs additionally
+    // overlay a clickable network of all routes for that mode while no
+    // single route is selected, so the user gets a "graph view" of the
+    // whole network at once instead of an empty placeholder.
     if (mtrView) mtrView.hidden = true;
     if (map)     map.hidden     = false;
     if (explore) explore.hidden = false;
@@ -360,9 +399,14 @@
     if (fits) {
       if (welcome) welcome.hidden = true;
       if (route)   route.hidden   = false;
+      hideModeNetwork();
     } else {
       if (welcome) welcome.hidden = false;
       if (route)   route.hidden   = true;
+      // For Macau modes show the whole-network graph view on the main map.
+      const co = MODE_TAB_TO_CO[tab];
+      if (co) showModeNetwork(co);
+      else hideModeNetwork();
     }
 
     // Refresh search dropdown to show only routes matching the new tab.
@@ -371,6 +415,88 @@
       if (input.value.trim()) runSearch(input.value);
       else showNearbySuggestions();
     }
+  }
+
+  // ====================================================== Mode network graph
+  // Plots every route for a given operator on the main map at once, so the
+  // user sees the whole network for that mode (LRT, casino shuttles, MOBus)
+  // without having to pick a route first. Polylines + stop markers are
+  // clickable: tapping a polyline drills into that route's detail view.
+
+  const MODE_TAB_TO_CO = { mobus: "MOB", lrt: "LRT", shuttle: "MOSC" };
+  const modeOverlayCache = new Map(); // co → L.LayerGroup
+  let activeModeOverlay = null;       // currently-shown LayerGroup
+
+  async function ensureModeOverlay(co) {
+    if (modeOverlayCache.has(co)) return modeOverlayCache.get(co);
+    const layer = L.layerGroup();
+    const routes = (state.routes || []).filter((r) => r.co === co);
+    if (routes.length === 0) {
+      modeOverlayCache.set(co, layer);
+      return layer;
+    }
+    const geos = await Promise.all(routes.map((r) =>
+      fetchJson(`${DATA_BASE}/geometry/${r.rk}_1.json`).catch(() => null)
+    ));
+
+    // Stops shared across multiple routes (LRT interchanges, casino shuttle
+    // hubs like the Outer Harbour ferry terminal) only get one marker — the
+    // first occurrence wins.
+    const drawn = new Set();
+    geos.forEach((geo, i) => {
+      if (!geo) return;
+      const route = routes[i];
+      const c = route.color || companyColor(co);
+      const coords = (geo.coords || []).filter(
+        (p) => Array.isArray(p) && typeof p[0] === "number"
+      );
+      if (coords.length >= 2) {
+        const pl = L.polyline(coords, { color: c, weight: 4, opacity: 0.85 });
+        const tip = co === "MOSC"
+          ? `${route.casino || ""} · ${route.oe} → ${route.de}`.replace(/^\s*·\s*/, "")
+          : `${route.id} · ${route.oe || ""}${route.de ? ` → ${route.de}` : ""}`;
+        pl.bindTooltip(tip, { sticky: true });
+        pl.on("click", () => selectRoute(route));
+        pl.addTo(layer);
+      }
+      for (const s of (geo.stops || [])) {
+        if (drawn.has(s.stop_id)) continue;
+        drawn.add(s.stop_id);
+        const isHub = co === "LRT" || (co === "MOSC" && /(FT|Terminal|Border|Airport|HZMB)/i.test(s.stop_name));
+        const marker = L.circleMarker([s.lat, s.lng], {
+          radius: isHub ? 6 : 4,
+          fillColor: "#ffffff",
+          color: c,
+          weight: 2,
+          fillOpacity: 1,
+        });
+        marker.bindTooltip(s.stop_name_tc || s.stop_name);
+        marker.addTo(layer);
+      }
+    });
+    modeOverlayCache.set(co, layer);
+    return layer;
+  }
+
+  async function showModeNetwork(co) {
+    if (!state.map) return;
+    hideModeNetwork();
+    const layer = await ensureModeOverlay(co);
+    if (state.activeTab && MODE_TAB_TO_CO[state.activeTab] !== co) return; // user switched away
+    layer.addTo(state.map);
+    activeModeOverlay = layer;
+    try {
+      const grp = L.featureGroup(layer.getLayers());
+      const b = grp.getBounds();
+      if (b.isValid()) state.map.fitBounds(b, { padding: [30, 30], maxZoom: 14 });
+    } catch { /* empty layer */ }
+  }
+
+  function hideModeNetwork() {
+    if (activeModeOverlay && state.map) {
+      state.map.removeLayer(activeModeOverlay);
+    }
+    activeModeOverlay = null;
   }
 
   // ============================================================ MTR View
@@ -1670,8 +1796,8 @@
 
   async function selectRoute(route) {
     bumpActivity();
-    // Auto-switch to the matching tab so the user doesn't have to flip
-    // between operators manually when picking a route from search.
+    // Auto-switch to the matching tab + region so the user doesn't have to
+    // flip operators manually when picking a route from search.
     const desiredTab = (() => {
       for (const [tab, set] of Object.entries(TAB_COMPANIES)) {
         if (set.has(route.co)) return tab;
@@ -1679,6 +1805,10 @@
       }
       return "bus";
     })();
+    const desiredRegion = TAB_REGION[desiredTab] || "hk";
+    if (state.activeRegion !== desiredRegion && desiredRegion !== "any") {
+      activateRegion(desiredRegion);
+    }
     if (state.activeTab !== desiredTab) activateTab(desiredTab);
 
     state.selectedRoute = route;

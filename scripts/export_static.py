@@ -633,16 +633,31 @@ def _build_macau_bus(
         first = macau_stops.get(seq[0], {})
         last  = macau_stops.get(seq[-1], {})
 
+        # DSAT circular routes have first == last stop. Their canonical name
+        # ("關閘 - 媽閣") encodes the two real endpoints — split on " - " or
+        # " ↔ " to recover them when the stop names alone would just say
+        # "關閘總站 → 關閘總站".
+        oe = _title_case_en(first.get("ne", ""))
+        de = _title_case_en(last.get("ne", ""))
+        ot = first.get("nt", "")
+        dt = last.get("nt", "")
+        nm = r.get("name_en") or r.get("name_tc") or ""
+        if seq[0] == seq[-1] and nm:
+            parts = re.split(r"\s*[-↔→]\s*", nm, maxsplit=1)
+            if len(parts) == 2 and parts[0] and parts[1]:
+                oe, de = _title_case_en(parts[0]), _title_case_en(parts[1])
+                ot, dt = parts[0], parts[1]
+
         routes.append({
             "rk": rk,
             "id": rid,
             "co": "MOB",
             "st": 1,
             "pid": r.get("operator", ""),
-            "oe": _title_case_en(first.get("ne", "")),
-            "de": _title_case_en(last.get("ne", "")),
-            "ot": first.get("nt", ""),
-            "dt": last.get("nt", ""),
+            "oe": oe,
+            "de": de,
+            "ot": ot,
+            "dt": dt,
             "operator_tc": r.get("operator_tc", ""),
             "frequency": r.get("frequency", ""),
             "hours": r.get("hours", ""),
