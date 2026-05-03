@@ -217,7 +217,12 @@
       "from": "GAL",
       "to": "BG",
       "frequency": "Every 15 min",
-      "hours": "08:00–23:30"
+      "hours": "08:00–23:30",
+      "stops": [
+        "GAL",
+        "BRO",
+        "BG"
+      ]
     },
     {
       "id": "GAL-AIR",
@@ -235,7 +240,12 @@
       "from": "GAL",
       "to": "HZMB",
       "frequency": "Every 15 min",
-      "hours": "08:00–23:00"
+      "hours": "08:00–23:00",
+      "stops": [
+        "GAL",
+        "BRO",
+        "HZMB"
+      ]
     },
     {
       "id": "GAL-STW",
@@ -245,51 +255,6 @@
       "to": "STW",
       "frequency": "Every 15 min",
       "hours": "08:00–23:00"
-    },
-    {
-      "id": "VEN-OHFT",
-      "casino": "Sands",
-      "color": "#c89858",
-      "from": "VEN",
-      "to": "OHFT",
-      "frequency": "Every 10 min",
-      "hours": "06:30–23:50"
-    },
-    {
-      "id": "VEN-TFT",
-      "casino": "Sands",
-      "color": "#c89858",
-      "from": "VEN",
-      "to": "TFT",
-      "frequency": "Every 30 min",
-      "hours": "10:00–21:30"
-    },
-    {
-      "id": "VEN-BG",
-      "casino": "Sands",
-      "color": "#c89858",
-      "from": "VEN",
-      "to": "BG",
-      "frequency": "Every 10 min",
-      "hours": "07:00–23:50"
-    },
-    {
-      "id": "VEN-AIR",
-      "casino": "Sands",
-      "color": "#c89858",
-      "from": "VEN",
-      "to": "AIR",
-      "frequency": "Every 30 min",
-      "hours": "07:00–22:30"
-    },
-    {
-      "id": "VEN-HZMB",
-      "casino": "Sands",
-      "color": "#c89858",
-      "from": "VEN",
-      "to": "HZMB",
-      "frequency": "Every 10 min",
-      "hours": "08:00–23:30"
     },
     {
       "id": "WPL-OHFT",
@@ -722,6 +687,81 @@
       "to": "OHFT",
       "frequency": "Every 30 min",
       "hours": "10:00–22:00"
+    },
+    {
+      "id": "SANDS-OHFT",
+      "casino": "Sands Cotai Express",
+      "color": "#c89858",
+      "stops": [
+        "OHFT",
+        "FSM",
+        "VEN",
+        "LON",
+        "PAR",
+        "OHFT"
+      ],
+      "frequency": "Every 10 min",
+      "hours": "06:30–23:50"
+    },
+    {
+      "id": "SANDS-TFT",
+      "casino": "Sands Cotai Express",
+      "color": "#c89858",
+      "stops": [
+        "TFT",
+        "FSM",
+        "VEN",
+        "LON",
+        "PAR",
+        "TFT"
+      ],
+      "frequency": "Every 30 min",
+      "hours": "10:00–21:30"
+    },
+    {
+      "id": "SANDS-BG",
+      "casino": "Sands Cotai Express",
+      "color": "#c89858",
+      "stops": [
+        "BG",
+        "FSM",
+        "VEN",
+        "LON",
+        "PAR",
+        "BG"
+      ],
+      "frequency": "Every 10 min",
+      "hours": "07:00–23:50"
+    },
+    {
+      "id": "SANDS-AIR",
+      "casino": "Sands Cotai Express",
+      "color": "#c89858",
+      "stops": [
+        "AIR",
+        "FSM",
+        "VEN",
+        "LON",
+        "PAR",
+        "AIR"
+      ],
+      "frequency": "Every 30 min",
+      "hours": "07:00–22:30"
+    },
+    {
+      "id": "SANDS-HZMB",
+      "casino": "Sands Cotai Express",
+      "color": "#c89858",
+      "stops": [
+        "HZMB",
+        "FSM",
+        "VEN",
+        "LON",
+        "PAR",
+        "HZMB"
+      ],
+      "frequency": "Every 10 min",
+      "hours": "08:00–23:30"
     }
   ]
 }

@@ -885,12 +885,26 @@ def _build_macau_shuttles(
     for r in sc_routes:
         rid = r["id"]
         rk = f"MOSC_{rid}"
-        from_code = r["from"]
-        to_code   = r["to"]
-        from_s = sc_stops.get(from_code)
-        to_s   = sc_stops.get(to_code)
-        if not from_s or not to_s:
+        # Multi-stop loops carry an ordered `stops` list (Sands' Cotai
+        # Express picks up at FSM → VEN → LON → PAR before / after each
+        # hub). Direct point-to-point routes still use `from` / `to`.
+        seq_codes = r.get("stops") or [r.get("from"), r.get("to")]
+        seq_codes = [c for c in seq_codes if c and c in sc_stops]
+        if len(seq_codes) < 2:
             continue
+        from_code = seq_codes[0]
+        to_code   = seq_codes[-1]
+        from_s = sc_stops[from_code]
+        to_s   = sc_stops[to_code]
+        # For loops where origin == destination, label the route by the
+        # most distant intermediate stop instead so the route header
+        # reads "OHFT → Cotai casinos" rather than "OHFT → OHFT".
+        if from_code == to_code and len(seq_codes) >= 3:
+            mid_code = seq_codes[len(seq_codes) // 2]
+            mid_s = sc_stops[mid_code]
+            de_label, dt_label = mid_s["ne"], mid_s["nt"]
+        else:
+            de_label, dt_label = to_s["ne"], to_s["nt"]
 
         routes.append({
             "rk": rk,
@@ -899,33 +913,39 @@ def _build_macau_shuttles(
             "st": 1,
             "pid": r.get("casino", ""),
             "oe": _title_case_en(from_s["ne"]),
-            "de": _title_case_en(to_s["ne"]),
+            "de": _title_case_en(de_label),
             "ot": from_s["nt"],
-            "dt": to_s["nt"],
+            "dt": dt_label,
             "casino": r.get("casino", ""),
             "color": r.get("color", "#a89060"),
             "frequency": r.get("frequency", ""),
             "hours": r.get("hours", ""),
             "dirs": [1],
+            "via": [c for c in seq_codes[1:-1]] if len(seq_codes) > 2 else [],
         })
 
-        geo_stops = [
-            {"stop_id": f"MOSC_{from_code}", "stop_name": from_s["ne"],
-             "stop_name_tc": from_s["nt"], "sequence": 1, "company": "MOSC",
-             "lat": float(from_s["la"]), "lng": float(from_s["lg"])},
-            {"stop_id": f"MOSC_{to_code}",   "stop_name": to_s["ne"],
-             "stop_name_tc": to_s["nt"],   "sequence": 2, "company": "MOSC",
-             "lat": float(to_s["la"]),   "lng": float(to_s["lg"])},
-        ]
-        coords_line = [
-            [float(from_s["la"]), float(from_s["lg"])],
-            [float(to_s["la"]),   float(to_s["lg"])],
-        ]
+        geo_stops = []
+        coords_line = []
+        for i, code in enumerate(seq_codes, start=1):
+            s = sc_stops[code]
+            geo_stops.append({
+                "stop_id": f"MOSC_{code}",
+                "stop_name": s["ne"],
+                "stop_name_tc": s["nt"],
+                "sequence": i,
+                "company": "MOSC",
+                "lat": float(s["la"]),
+                "lng": float(s["lg"]),
+            })
+            coords_line.append([float(s["la"]), float(s["lg"])])
+            stop_routes.setdefault(f"MOSC_{code}", []).append(rk)
+        # Dedup the reverse-index — loops add the same stop twice.
+        for sid, rks in stop_routes.items():
+            if rks.count(rk) > 1:
+                stop_routes[sid] = [x for x in rks if x != rk] + [rk]
         prebuilt = _load_macau_prebuilt(rk)
         if prebuilt:
             coords_line = prebuilt
-        stop_routes.setdefault(f"MOSC_{from_code}", []).append(rk)
-        stop_routes.setdefault(f"MOSC_{to_code}",   []).append(rk)
 
         out_path = OUT_GEO / f"{rk}_1.json"
         out_path.write_text(

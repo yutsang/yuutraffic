@@ -243,18 +243,14 @@ def main() -> int:
         if not rid:
             continue
         rk = f"MOSC_{rid}"
-        from_code = r.get("from")
-        to_code = r.get("to")
-        if not from_code or not to_code:
+        # Multi-stop loops: route declares an ordered ``stops`` list.
+        # Direct routes still use ``from`` / ``to``.
+        seq_codes = r.get("stops") or [r.get("from"), r.get("to")]
+        seq_codes = [c for c in seq_codes if c and c in sc_stops]
+        if len(seq_codes) < 2:
             continue
-        from_s = sc_stops.get(from_code)
-        to_s = sc_stops.get(to_code)
-        if not from_s or not to_s:
-            continue
-        coords = [
-            (float(from_s["la"]), float(from_s["lg"])),
-            (float(to_s["la"]), float(to_s["lg"])),
-        ]
+        coords = [(float(sc_stops[c]["la"]), float(sc_stops[c]["lg"]))
+                  for c in seq_codes]
         is_last = idx == sc_total
         _process(rk, coords, cache, stats, is_last)
         if idx % PROGRESS_EVERY == 0 or idx == sc_total:

@@ -1121,16 +1121,31 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px 8px;
   padding-bottom: 8px;
   border-bottom: 1px dashed var(--yuu-border);
   margin-bottom: 8px;
+  font-size: 0.85rem;
 }
 .yuu-shuttle-stop {
   display: inline-flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 .yuu-shuttle-stop strong { font-size: 0.95rem; }
+.yuu-shuttle-stop-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--yuu-route-color, var(--yuu-accent));
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
 .yuu-shuttle-stop-arrow {
   color: var(--yuu-muted);
   font-size: 1.1rem;

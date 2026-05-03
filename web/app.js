@@ -373,8 +373,14 @@
       `<div class="yuu-shuttle-section-title">${matches.length} shuttles · ${escapeHtml(hubTc)} · ${escapeHtml(hubEn)}</div>` +
       enriched.map(({ r, next, clock }) => {
         const c = r.color || "#a89060";
-        const otherEn = r.oe === hubEn ? r.de : r.oe;
-        const otherTc = r.ot === hubTc ? r.dt : r.ot;
+        const isLoop = r.via && r.via.length > 0;
+        // Single-line headline for the row.
+        const headlineEn = isLoop
+          ? `${r.casino} · via ${r.via.length} stop${r.via.length === 1 ? "" : "s"}`
+          : (r.oe === hubEn ? r.de : r.oe);
+        const headlineTc = isLoop
+          ? `經 ${r.via.length} 站`
+          : (r.ot === hubTc ? r.dt : r.ot);
         let meta;
         if (next?.kind === "running" && clock?.length) {
           meta = `<span class="yuu-shuttle-row-next">⏱ ${escapeHtml(clock.slice(0,2).join(" · "))}</span><span>last ${next.lastHHMM}</span>`;
@@ -385,19 +391,33 @@
         } else {
           meta = `<span>${escapeHtml(r.frequency || "")}</span><span>${escapeHtml(r.hours || "")}</span>`;
         }
-        // The detail body is rendered up-front but kept display:none via
-        // CSS — only revealed when the row gets the `.expanded` class.
-        // Stop list, full clock-time list, and frequency live here.
-        const stopsLine = `<div class="yuu-shuttle-stops">
-          <span class="yuu-shuttle-stop"><strong>${escapeHtml(hubTc)}</strong> · ${escapeHtml(hubEn)}</span>
-          <span class="yuu-shuttle-stop-arrow">→</span>
-          <span class="yuu-shuttle-stop"><strong>${escapeHtml(otherTc)}</strong> · ${escapeHtml(otherEn)}</span>
-        </div>`;
+        // Detail body: rendered up-front, hidden by CSS until `.expanded`.
+        // Loops render the full multi-stop list; direct routes show two.
+        const stopsList = (() => {
+          if (isLoop) {
+            // Build the chain by reading the route's geometry stops out
+            // of the global stops dict via via[]. Each via code maps to
+            // MOSC_<code>; pull the casino name from state.stops.
+            const allStops = state.stops || {};
+            const codes = [hubCode, ...r.via, hubCode];   // loop closes
+            return codes.map((code, i) => {
+              const sid = `MOSC_${code}`;
+              const s = allStops[sid] || {};
+              const lbl = s.nt || s.ne || code;
+              return `<span class="yuu-shuttle-stop"><span class="yuu-shuttle-stop-num">${i + 1}</span>${escapeHtml(lbl)}</span>`;
+            }).join('<span class="yuu-shuttle-stop-arrow">→</span>');
+          }
+          const otherEn = r.oe === hubEn ? r.de : r.oe;
+          const otherTc = r.ot === hubTc ? r.dt : r.ot;
+          return `<span class="yuu-shuttle-stop"><strong>${escapeHtml(hubTc)}</strong> · ${escapeHtml(hubEn)}</span>
+            <span class="yuu-shuttle-stop-arrow">↔</span>
+            <span class="yuu-shuttle-stop"><strong>${escapeHtml(otherTc)}</strong> · ${escapeHtml(otherEn)}</span>`;
+        })();
         const fullClock = clock?.length
           ? `<div class="yuu-shuttle-row-clocklist">Next departures · ${escapeHtml(clock.join(" · "))}</div>`
           : "";
         const detail = `<div class="yuu-shuttle-row-detail">
-          ${stopsLine}
+          <div class="yuu-shuttle-stops">${stopsList}</div>
           <div class="yuu-shuttle-row-info">
             <span>${escapeHtml(r.frequency || "")}</span>
             <span>·</span>
@@ -409,8 +429,8 @@
           <div class="yuu-shuttle-row-head">
             <span class="yuu-badge MOSC" style="background:${c};color:#fff">${escapeHtml(r.casino || "Shuttle")}</span>
             <div class="yuu-shuttle-row-direction">
-              <div>${escapeHtml(otherEn || "")}</div>
-              <div class="yuu-shuttle-row-tc">${escapeHtml(otherTc || "")}</div>
+              <div>${escapeHtml(headlineEn || "")}</div>
+              <div class="yuu-shuttle-row-tc">${escapeHtml(headlineTc || "")}</div>
             </div>
             <div class="yuu-shuttle-row-meta">${meta}</div>
             <span class="yuu-shuttle-row-chevron" aria-hidden="true">▸</span>
@@ -778,6 +798,7 @@
       if (welcome)   welcome.hidden   = true;
       if (route)     route.hidden     = true;
       if (mtrView)   mtrView.hidden   = true;
+      const shuttleV = $("yuu-shuttle-view"); if (shuttleV) shuttleV.hidden = true;
       if (planSec)   planSec.hidden   = false;
       if (map)       map.hidden       = true;
       ensurePlanMapRendered();
@@ -1705,16 +1726,32 @@
     });
   }
 
-  // Nominatim geocoding — limited to HK, English/Chinese names, max 5
-  // results. Free public service; respect their 1 req/sec etiquette.
+  // Nominatim geocoding — restricted to HK + MO, English / Chinese /
+  // Portuguese names, max 8 results. Free public service; respect their
+  // 1 req/sec etiquette.
   let _geocodeCache = new Map(), _geocodeInflight = null;
   async function geocodeAddress(query) {
     const key = query.toLowerCase();
     if (_geocodeCache.has(key)) return _geocodeCache.get(key);
     if (_geocodeInflight) await _geocodeInflight.catch(() => {});
     _geocodeInflight = (async () => {
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query + " Hong Kong")}&format=json&limit=5&accept-language=en,zh-HK&countrycodes=hk&addressdetails=0`;
-      const resp = await fetch(url, { headers: { "Accept": "application/json" } });
+      // viewbox biases results to the HK + MO bounding box so when a name
+      // exists in both jurisdictions the local one wins. countrycodes=hk,mo
+      // restricts to those two SARs only.
+      const params = new URLSearchParams({
+        q: query,
+        format: "json",
+        limit: "8",
+        "accept-language": "en,zh-HK,zh,pt",
+        countrycodes: "hk,mo",
+        viewbox: "113.50,22.62,114.50,22.05",
+        bounded: "1",
+        addressdetails: "0",
+      });
+      const url = `https://nominatim.openstreetmap.org/search?${params}`;
+      const resp = await fetch(url, {
+        headers: { "Accept": "application/json", "User-Agent": "YuuTraffic/1.0" },
+      });
       if (!resp.ok) return [];
       const data = await resp.json();
       _geocodeCache.set(key, data);
