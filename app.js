@@ -325,51 +325,13 @@
     );
   }
 
-  // Tab → region map. The region switch (HK | Macau) hides tabs whose
-  // data-region doesn't match the active region; "any" tabs (e.g. Plan)
-  // show in both regions.
-  const TAB_REGION = {
-    bus: "hk", mtr: "hk",
-    momap: "mo",
-    plan: "any",
-  };
-  const REGION_DEFAULT_TAB = { hk: "bus", mo: "momap" };
-  // Pseudo-tab → company mapping for legacy code paths that still expect
-  // per-mode tabs. After collapsing into one Macau map this is essentially
-  // unused but kept so search-by-route still works for a route belonging to
-  // any of the three Macau modes.
-  const CO_TO_TAB = { MOB: "momap", LRT: "momap", MOSC: "momap" };
-
-  // Six tabs gated by the HK / Macau region switch:
-  //   HK  → Bus / MTR / Plan
-  //   MO  → MOBus / 輕軌 / 財車 / Plan
+  // Flat tab strip — no region switch. Macau gets one "Macau 澳門" tab
+  // that opens the unified Macau map with checkbox layer toggles inside.
   function initModeTabs() {
     document.querySelectorAll(".yuu-tab").forEach((btn) => {
       btn.addEventListener("click", () => activateTab(btn.dataset.tab));
     });
-    document.querySelectorAll(".yuu-region").forEach((btn) => {
-      btn.addEventListener("click", () => activateRegion(btn.dataset.region));
-    });
-    activateRegion("hk");
-  }
-
-  function activateRegion(region) {
-    state.activeRegion = region;
-    document.querySelectorAll(".yuu-region").forEach((b) => {
-      const on = b.dataset.region === region;
-      b.classList.toggle("active", on);
-      b.setAttribute("aria-selected", on ? "true" : "false");
-    });
-    document.querySelectorAll(".yuu-tab").forEach((b) => {
-      const r = b.dataset.region;
-      b.hidden = !(r === region || r === "any");
-    });
-    // If the previously-active tab no longer belongs to this region, fall
-    // back to the region's default landing tab.
-    const cur = state.activeTab;
-    if (!cur || (TAB_REGION[cur] !== region && TAB_REGION[cur] !== "any")) {
-      activateTab(REGION_DEFAULT_TAB[region]);
-    }
+    activateTab("bus");
   }
 
   function activateTab(tab) {
@@ -419,15 +381,33 @@
     }
 
     if (tab === "momap") {
-      // Single Macau map with checkbox-toggleable layers for MOBus / LRT /
-      // 財車. Replaces the three previous per-mode tabs.
-      if (explore)   explore.hidden   = true;
-      if (welcome)   welcome.hidden   = true;
-      if (route)     route.hidden     = true;
-      if (map)       map.hidden       = true;
-      if (mtrView)   mtrView.hidden   = true;
-      if (momapView) momapView.hidden = false;
-      ensureMomapRendered().catch((e) => console.warn("momap render failed", e));
+      // Two presentations gated on whether a Macau route is currently
+      // selected:
+      //   no route           → unified Macau map (yuu-momap-view) with
+      //                         layer checkboxes;
+      //   MO route selected  → standard per-route view (stops + main map)
+      //                         so picking a specific route from search
+      //                         drills into a familiar UX rather than
+      //                         dropping the user back to the network map.
+      const r = state.selectedRoute;
+      const isMo = r && TAB_COMPANIES.momap.has(r.co);
+      if (isMo) {
+        if (explore)   explore.hidden   = false;
+        if (welcome)   welcome.hidden   = true;
+        if (route)     route.hidden     = false;
+        if (map)       map.hidden       = false;
+        if (mtrView)   mtrView.hidden   = true;
+        if (momapView) momapView.hidden = true;
+        if (sel)       sel.style.display = "none";
+      } else {
+        if (explore)   explore.hidden   = true;
+        if (welcome)   welcome.hidden   = true;
+        if (route)     route.hidden     = true;
+        if (map)       map.hidden       = true;
+        if (mtrView)   mtrView.hidden   = true;
+        if (momapView) momapView.hidden = false;
+        ensureMomapRendered().catch((e) => console.warn("momap render failed", e));
+      }
       return;
     }
 
@@ -476,7 +456,15 @@
     MOSC: { lines: null, hubs: null, regular: null },
   };
   // Active checkbox state. Changes immediately add/remove L.layerGroups.
+  // Per-mode: whether stops + routes are eligible to show. `linesVisible`
+  // gates the polyline layer globally — default OFF so the wide map opens
+  // as a clean dot field of stops, not a noodle bowl.
   const momapVisible = { MOB: true, LRT: true, MOSC: true };
+  let momapLinesVisible = false;
+  // Temporary highlight layer drawn when the user clicks a single stop —
+  // shows just the routes through THAT stop, even when global lines are
+  // hidden. Cleared on next stop click or when the side panel closes.
+  let momapHighlight = null;
 
   // A stop is treated as a "hub" (always shown) if it's:
   //  - any LRT station
@@ -513,6 +501,17 @@
     // user zooms — keeps the low-zoom view legible.
     momap.on("zoomend", applyMomapZoomFilter);
 
+    // Tapping bare map (not a marker / polyline) clears the per-stop
+    // highlight + the side panel so the wide network view returns.
+    momap.on("click", () => {
+      if (momapHighlight) {
+        momap.removeLayer(momapHighlight);
+        momapHighlight = null;
+      }
+      const detail = $("yuu-momap-detail");
+      if (detail) { detail.hidden = true; detail.innerHTML = ""; }
+    });
+
     await Promise.all([
       buildMomapLayer("MOB"),
       buildMomapLayer("LRT"),
@@ -521,10 +520,16 @@
     applyMomapVisibility();
     applyMomapZoomFilter();
 
-    // Wire checkbox events once.
+    // Wire checkbox events once. Two flavours: per-layer (data-layer="MOB"
+    // …) toggles a whole mode; the global "Show routes" (data-toggle="lines")
+    // turns the polylines on/off across all modes.
     document.querySelectorAll(".yuu-momap-chk input[type=checkbox]").forEach((cb) => {
       cb.addEventListener("change", () => {
-        momapVisible[cb.dataset.layer] = cb.checked;
+        if (cb.dataset.toggle === "lines") {
+          momapLinesVisible = cb.checked;
+        } else if (cb.dataset.layer) {
+          momapVisible[cb.dataset.layer] = cb.checked;
+        }
         applyMomapVisibility();
         applyMomapZoomFilter();
       });
@@ -608,14 +613,22 @@
     if (!momap) return;
     for (const co of Object.keys(momapLayers)) {
       const grp = momapLayers[co];
-      const on = momapVisible[co];
-      ["lines", "hubs", "regular"].forEach((k) => {
-        const layer = grp[k];
+      const layerOn = momapVisible[co];
+      // Stops follow the per-mode tick directly. Polylines additionally
+      // require the global "Show routes" tick.
+      const wantLines   = layerOn && momapLinesVisible;
+      const wantHubs    = layerOn;
+      const wantRegular = layerOn;
+      const apply = (key, want) => {
+        const layer = grp[key];
         if (!layer) return;
         const present = momap.hasLayer(layer);
-        if (on && !present) layer.addTo(momap);
-        if (!on && present) momap.removeLayer(layer);
-      });
+        if (want && !present) layer.addTo(momap);
+        if (!want && present) momap.removeLayer(layer);
+      };
+      apply("lines",   wantLines);
+      apply("hubs",    wantHubs);
+      apply("regular", wantRegular);
     }
   }
 
@@ -657,10 +670,29 @@
     host.querySelector('[data-action=open]')?.addEventListener("click", () => selectRoute(route));
   }
 
-  function openMomapStopDetail(stop, routes) {
+  async function openMomapStopDetail(stop, routes) {
     const host = $("yuu-momap-detail");
     if (!host) return;
     host.hidden = false;
+
+    // Even when the global "Show routes" tick is off, draw the routes
+    // serving THIS stop on the map as a highlight so the user gets a
+    // visual answer to "what serves this stop?". Cleared next time a
+    // stop is clicked (or on Reset).
+    if (momapHighlight) momap.removeLayer(momapHighlight);
+    momapHighlight = L.layerGroup().addTo(momap);
+    routes.slice(0, 12).forEach(async (r) => {
+      const geo = await fetchJson(`${DATA_BASE}/geometry/${r.rk}_1.json`).catch(() => null);
+      if (!geo) return;
+      const coords = (geo.coords || []).filter((p) => Array.isArray(p) && typeof p[0] === "number");
+      if (coords.length < 2) return;
+      const c = r.color || companyColor(r.co);
+      L.polyline(coords, {
+        color: c, weight: 5, opacity: 0.9,
+        dashArray: r.co === "MOSC" ? "6 4" : null,
+      }).addTo(momapHighlight);
+    });
+
     const tcName = stop.stop_name_tc || stop.stop_name;
     const enName = stop.stop_name || stop.stop_name_tc;
     const rows = routes.map((r) => {
@@ -2010,8 +2042,11 @@
 
   async function selectRoute(route) {
     bumpActivity();
-    // Auto-switch to the matching tab + region so the user doesn't have to
-    // flip operators manually when picking a route from search.
+    // Set selectedRoute FIRST so activateTab's "is a MO route selected?"
+    // check sees the new route — momap tab forks its visible elements
+    // based on whether a Macau route is currently selected.
+    state.selectedRoute = route;
+    state.selectedStop = null;
     const desiredTab = (() => {
       for (const [tab, set] of Object.entries(TAB_COMPANIES)) {
         if (set.has(route.co)) return tab;
@@ -2019,14 +2054,11 @@
       }
       return "bus";
     })();
-    const desiredRegion = TAB_REGION[desiredTab] || "hk";
-    if (state.activeRegion !== desiredRegion && desiredRegion !== "any") {
-      activateRegion(desiredRegion);
-    }
-    if (state.activeTab !== desiredTab) activateTab(desiredTab);
+    // Always re-run activateTab even if the tab is already active so the
+    // momap tab refreshes its mode (route view vs. unified map) when the
+    // user picks a route while already on Macau.
+    activateTab(desiredTab);
 
-    state.selectedRoute = route;
-    state.selectedStop = null;
     state.selectedDirection = (route.dirs && route.dirs[0]) || 1;
 
     // Theme the widget by company (colours polyline, stop-seq badges, etc.)
@@ -2098,6 +2130,11 @@
     const dirs = route.dirs && route.dirs.length ? route.dirs : [1];
 
     const parts = [];
+    // For Macau routes the user came from the unified map — give them a
+    // one-click back link so they don't have to use a tab swap to return.
+    if (TAB_COMPANIES.momap.has(route.co)) {
+      parts.push(`<button type="button" class="yuu-back-to-map" data-action="back-to-momap">← Map</button>`);
+    }
     parts.push(`<span class="yuu-op-text">${escapeHtml(opNames)}</span>`);
     badges.forEach((b) => {
       parts.push(`<span class="yuu-schedule-chip">${escapeHtml(b.en)} · ${escapeHtml(b.tc)}</span>`);
@@ -2152,6 +2189,16 @@
         renderRouteChips(state.selectedRoute);
         updateRouteTitle();
         loadDirection({ autoFlip: false });
+      });
+    }
+
+    const back = host.querySelector("[data-action=back-to-momap]");
+    if (back) {
+      back.addEventListener("click", () => {
+        state.selectedRoute = null;
+        state.selectedStop = null;
+        $("yuu-search-input").value = "";
+        activateTab("momap");
       });
     }
   }

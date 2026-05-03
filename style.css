@@ -852,39 +852,6 @@
 }
 .yuu-mode-tabs::-webkit-scrollbar { display: none; }
 
-/* Region switch (HK | Macau) — segmented pill that gates which mode tabs
-   are visible. Sits on its own row above the mode tabs so the user can
-   scan the active region at a glance. */
-.yuu-region-switch {
-  display: inline-flex;
-  align-self: flex-start;
-  gap: 0;
-  border: 1px solid var(--yuu-border);
-  border-radius: var(--yuu-radius);
-  background: var(--yuu-surface);
-  padding: 2px;
-  box-shadow: var(--yuu-shadow-sm);
-  flex-shrink: 0;
-}
-.yuu-region {
-  font-family: inherit;
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  padding: 6px 14px;
-  background: transparent;
-  color: var(--yuu-muted);
-  border: 0;
-  border-radius: calc(var(--yuu-radius) - 2px);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 120ms, color 120ms;
-}
-.yuu-region:hover { color: var(--yuu-text); }
-.yuu-region.active {
-  background: var(--yuu-accent);
-  color: #ffffff;
-}
 
 .yuu-tab {
   font-family: inherit;
@@ -932,6 +899,31 @@
   user-select: none;
 }
 .yuu-momap-chk input { width: 16px; height: 16px; cursor: pointer; }
+.yuu-momap-chk-routes {
+  border-left: 1px solid var(--yuu-border);
+  padding-left: 12px;
+  color: var(--yuu-muted);
+}
+
+/* Small back-link in the chip toolbar for Macau routes — drops the user
+   back into the unified Macau map without a full tab dance. */
+.yuu-back-to-map {
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 3px 8px;
+  border: 1px solid var(--yuu-border);
+  background: var(--yuu-bg);
+  color: var(--yuu-text);
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.yuu-back-to-map:hover {
+  background: var(--yuu-accent-soft);
+  border-color: var(--yuu-accent);
+}
 .yuu-momap-hint {
   margin-left: auto;
   font-size: 0.78rem;
