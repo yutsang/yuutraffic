@@ -1526,7 +1526,13 @@
       } catch {}
     };
     if (option) {
-      if (option.type === "interchange") {
+      if (Array.isArray(option.legs)) {
+        for (const leg of option.legs) {
+          if (leg.kind !== "ride") continue;
+          drawSegment(leg.route.rk, leg.dir, leg.boardStopId, leg.alightStopId);
+        }
+      } else if (option.type === "interchange") {
+        // Legacy shape — kept just in case anything still calls in here.
         drawSegment(option.legA.rk, option.legA.dir, option.legA.boardId, option.legA.alightId);
         drawSegment(option.legB.rk, option.legB.dir, option.legB.boardId, option.legB.alightId);
       } else {
@@ -1789,188 +1795,407 @@
     return nearestStopsTo(end.lat, end.lng, 600, 8);
   }
 
-  // Multi-stop search: for every pair (oStop, dStop) in the cross-product of
-  // walking-range stops at each endpoint, look for direct routes. Sort by
-  // total wall-time = walk + transit (rough estimate).
+  // Tunables for the trip-planner graph search.
+  const WALK_SPEED_M_PER_MIN = 80;          // 4.8 km/h
+  const TRANSFER_WALK_MAX_M  = 220;         // ≤220 m between transfer stops
+  const TRANSFER_PENALTY_MIN = 4;           // wait / re-board overhead
+  const TRANSIT_PER_STOP_MIN = { MTR: 2, LRT: 1.4, MOSC: 1.4, MOB: 1.4 };  // default 1.5
+  const TRIP_RESULT_LIMIT    = 6;
+  const BIDIR_COMPANIES      = new Set(["MOSC", "LRT", "MOB"]);  // direction-2 geometry not exported
+  const VIRTUAL_ORIGIN       = "__ORIGIN__";
+  const VIRTUAL_DEST         = "__DEST__";
+
+  // Minimal binary-heap PQ keyed by `d`. JS has no built-in priority queue
+  // and the planner pushes thousands of nodes, so an array-sort approach
+  // would dominate runtime. ~30 LOC is the smallest thing that still beats
+  // Array.sort each pop.
+  function MinHeap() {
+    this.a = [];
+  }
+  MinHeap.prototype.push = function (x) {
+    const a = this.a;
+    a.push(x);
+    let i = a.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (a[p].d <= a[i].d) break;
+      [a[p], a[i]] = [a[i], a[p]];
+      i = p;
+    }
+  };
+  MinHeap.prototype.pop = function () {
+    const a = this.a;
+    if (!a.length) return null;
+    const top = a[0];
+    const last = a.pop();
+    if (a.length) {
+      a[0] = last;
+      let i = 0;
+      const n = a.length;
+      while (true) {
+        const l = i * 2 + 1, r = i * 2 + 2;
+        let s = i;
+        if (l < n && a[l].d < a[s].d) s = l;
+        if (r < n && a[r].d < a[s].d) s = r;
+        if (s === i) break;
+        [a[i], a[s]] = [a[s], a[i]];
+        i = s;
+      }
+    }
+    return top;
+  };
+  MinHeap.prototype.empty = function () { return this.a.length === 0; };
+
+  function transitPerStop(co) {
+    return TRANSIT_PER_STOP_MIN[co] ?? 1.5;
+  }
+
+  // Spatial grid of every stop, used by Dijkstra to find walk-transfer
+  // candidates within TRANSFER_WALK_MAX_M without scanning all 10k stops
+  // at every PQ pop. Cell ≈ 0.002° ≈ 200 m at HK/MO latitudes.
+  let _stopGrid = null;
+  function ensureStopGrid(stops) {
+    if (_stopGrid) return _stopGrid;
+    const cell = 0.002;
+    const grid = new Map();
+    for (const [id, s] of Object.entries(stops)) {
+      if (s.la == null || s.lg == null) continue;
+      const key = `${Math.floor(s.la / cell)}|${Math.floor(s.lg / cell)}`;
+      let bucket = grid.get(key);
+      if (!bucket) { bucket = []; grid.set(key, bucket); }
+      bucket.push({ id, la: s.la, lg: s.lg });
+    }
+    _stopGrid = { cell, grid };
+    return _stopGrid;
+  }
+
+  function neighborsWithinRadius(stops, fromId, radiusM) {
+    const { cell, grid } = ensureStopGrid(stops);
+    const me = stops[fromId];
+    if (!me || me.la == null) return [];
+    const gx = Math.floor(me.la / cell);
+    const gy = Math.floor(me.lg / cell);
+    const out = [];
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const bucket = grid.get(`${gx + dx}|${gy + dy}`);
+        if (!bucket) continue;
+        for (const b of bucket) {
+          if (b.id === fromId) continue;
+          const d = distanceM(me.la, me.lg, b.la, b.lg);
+          if (d <= radiusM) out.push({ id: b.id, distance: d });
+        }
+      }
+    }
+    return out;
+  }
+
+  // Build ride-edge adjacency (stop → [{to, cost, rk, dir}]) from the
+  // bundled stop_sequences.json. Direction-2 is synthesised for Macau modes
+  // whose source data only ships direction-1 geometry (LRT, casino shuttles,
+  // DSAT buses). Cached once per session — the graph is identical between
+  // queries since it depends only on static schedule data.
+  let _rideAdj = null;
+  function buildRideAdjacency(sequences, routesByRk) {
+    if (_rideAdj) return _rideAdj;
+    const adj = new Map();
+    function addEdge(from, to, cost, info) {
+      let list = adj.get(from);
+      if (!list) { list = []; adj.set(from, list); }
+      list.push({ to, cost, ...info });
+    }
+    for (const [rk, dirs] of Object.entries(sequences)) {
+      const route = routesByRk.get(rk);
+      if (!route) continue;
+      const cost = transitPerStop(route.co);
+      const bidir = BIDIR_COMPANIES.has(route.co);
+      for (const [dirStr, seq] of Object.entries(dirs)) {
+        const dir = parseInt(dirStr, 10) || 1;
+        for (let i = 0; i < seq.length - 1; i++) {
+          addEdge(seq[i], seq[i + 1], cost, { kind: "ride", rk, dir });
+        }
+        if (bidir) {
+          for (let i = seq.length - 1; i > 0; i--) {
+            addEdge(seq[i], seq[i - 1], cost, { kind: "ride", rk, dir });
+          }
+        }
+      }
+    }
+    _rideAdj = adj;
+    return adj;
+  }
+
+  // Dijkstra trip planner. Returns an array of multi-leg trips sorted by
+  // total wall-time (walking + ride + transfer penalties) ascending.
+  // Supports any number of transfers; the search space is bounded by
+  // Dijkstra's stop-distance frontier, not by an arbitrary cap.
+  //
+  // Diversity comes from re-running Dijkstra with the previous trip's first
+  // ride forbidden, so successive results board a different route. This is
+  // Yen's first-deviation step in spirit — cheap and produces visibly
+  // different alternatives (Bus A from kerb X vs. MTR from station Y).
   async function planTripMulti(fromEnd, toEnd) {
-    const sr = await ensureStopRoutesLoaded();
+    const [stops, sequences] = await Promise.all([
+      ensureStopsLoaded(),
+      ensureSequencesLoaded(),
+    ]);
     const fromStops = await endpointToStops(fromEnd);
     const toStops   = await endpointToStops(toEnd);
-    if (!fromStops.length || !toStops.length) return { direct: [] };
+    if (!fromStops.length || !toStops.length) return { trips: [] };
 
-    // Track best (fewest-hops) result per route_key so we don't list the
-    // same route 6 times boarding from 6 nearby stops.
-    const byRoute = new Map();
-    // Macau modes have only direction-1 geometry on file but the underlying
-    // service runs both ways (LRT trains, casino shuttles, DSAT buses
-    // travelling the same route number). Treat them as bidirectional in
-    // the planner so a request from "stop later in the sequence" → "stop
-    // earlier" still finds the route. HK bus / MTR direction is enforced
-    // because those have separate _2.json geometry per direction.
-    const isBidir = (co) => co === "MOSC" || co === "LRT" || co === "MOB";
-    // Build pairs of (origin route → dest route) candidates only when they
-    // actually share a route key.
-    for (const oStop of fromStops) {
-      const oRoutes = new Set(sr[oStop.id] || []);
-      for (const dStop of toStops) {
-        const dRoutes = new Set(sr[dStop.id] || []);
-        for (const rk of oRoutes) {
-          if (!dRoutes.has(rk)) continue;
-          const route = state.routes.find((r) => r.rk === rk);
-          if (!route) continue;
-          for (const d of (route.dirs && route.dirs.length ? route.dirs : [1])) {
-            try {
-              const geo = await fetchJson(`${DATA_BASE}/geometry/${rk}_${d}.json`);
-              const stops = geo.stops || [];
-              const fIdx = stops.findIndex((s) => s.stop_id === oStop.id);
-              const tIdx = stops.findIndex((s) => s.stop_id === dStop.id);
-              if (fIdx < 0 || tIdx < 0 || tIdx === fIdx) continue;
-              if (!isBidir(route.co) && tIdx < fIdx) continue;
-              const hops = Math.abs(tIdx - fIdx);
-              // Rough total-time estimate: walking ~5 km/h (12 m/min), each
-              // bus stop ~1.5 min, MTR station ~2 min.
-              const transitPerStop = route.co === "MTR" ? 2 : 1.5;
-              const walkMin = (oStop.distance + dStop.distance) / 80;
-              const total = walkMin + hops * transitPerStop;
-              const key = `${rk}_${d}`;
-              const candidate = {
-                route, dir: d,
-                board: { id: oStop.id, name: stops[fIdx].stop_name_tc || stops[fIdx].stop_name, distance: oStop.distance },
-                alight: { id: dStop.id, name: stops[tIdx].stop_name_tc || stops[tIdx].stop_name, distance: dStop.distance },
-                hops, walkMin, totalMin: total,
-              };
-              if (!byRoute.has(key) || byRoute.get(key).totalMin > total) {
-                byRoute.set(key, candidate);
-              }
-            } catch (e) { /* missing geometry: skip */ }
-          }
+    const routesByRk = new Map(state.routes.map((r) => [r.rk, r]));
+    const rideAdj    = buildRideAdjacency(sequences, routesByRk);
+
+    const allTrips = [];
+    const seen = new Set();
+    const forbiddenRoutes = new Set();
+    // Up to TRIP_RESULT_LIMIT * 2 attempts so we can drop near-duplicates
+    // without bailing on diversity prematurely.
+    for (let pass = 0; pass < TRIP_RESULT_LIMIT * 2; pass++) {
+      const passTrips = dijkstraTrips(
+        fromStops, toStops, rideAdj, stops, routesByRk, fromEnd, toEnd, forbiddenRoutes
+      );
+      if (!passTrips.length) break;
+      let firstAdded = null;
+      for (const t of passTrips) {
+        const sig = t.legs.filter((l) => l.kind === "ride")
+                          .map((l) => `${l.route.rk}_${l.dir}`).join("|");
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        allTrips.push(t);
+        if (!firstAdded) firstAdded = t;
+        if (allTrips.length >= TRIP_RESULT_LIMIT) break;
+      }
+      if (allTrips.length >= TRIP_RESULT_LIMIT) break;
+      // Force the next pass to choose a different first ride. If forbidding
+      // doesn't change anything (e.g., no first ride or already forbidden),
+      // stop — further passes would just repeat the previous result.
+      if (!firstAdded) break;
+      const firstRide = firstAdded.legs.find((l) => l.kind === "ride");
+      if (!firstRide || forbiddenRoutes.has(firstRide.route.rk)) break;
+      forbiddenRoutes.add(firstRide.route.rk);
+    }
+
+    allTrips.sort((a, b) => a.totalMin - b.totalMin);
+    return { trips: allTrips };
+  }
+
+  // One Dijkstra pass. Returns the trips reachable in this pass, ordered by
+  // total wall-time ascending. Routes in `forbiddenRoutes` are skipped when
+  // relaxing ride edges so re-runs can deviate from earlier results.
+  function dijkstraTrips(fromStops, toStops, rideAdj, stops, routesByRk, fromEnd, toEnd, forbiddenRoutes) {
+    const destSet = new Map();
+    for (const t of toStops) destSet.set(t.id, t.distance / WALK_SPEED_M_PER_MIN);
+
+    const dist = new Map();
+    const prev = new Map();
+    const pq   = new MinHeap();
+    dist.set(VIRTUAL_ORIGIN, 0);
+    for (const o of fromStops) {
+      const walk = o.distance / WALK_SPEED_M_PER_MIN;
+      if (walk < (dist.get(o.id) ?? Infinity)) {
+        dist.set(o.id, walk);
+        prev.set(o.id, { from: VIRTUAL_ORIGIN, cost: walk, kind: "walk_start", walkM: o.distance });
+        pq.push({ id: o.id, d: walk });
+      }
+    }
+
+    while (!pq.empty()) {
+      const { id, d } = pq.pop();
+      if (d > (dist.get(id) ?? Infinity)) continue;
+      if (id === VIRTUAL_DEST) break;
+
+      const destWalk = destSet.get(id);
+      if (destWalk != null) {
+        const nd = d + destWalk;
+        if (nd < (dist.get(VIRTUAL_DEST) ?? Infinity)) {
+          dist.set(VIRTUAL_DEST, nd);
+          prev.set(VIRTUAL_DEST, { from: id, cost: destWalk, kind: "walk_end", walkM: Math.round(destWalk * WALK_SPEED_M_PER_MIN) });
+          pq.push({ id: VIRTUAL_DEST, d: nd });
+        }
+      }
+
+      const prevInfo = prev.get(id);
+
+      for (const e of rideAdj.get(id) || []) {
+        if (forbiddenRoutes && forbiddenRoutes.has(e.rk)) continue;
+        let penalty = 0;
+        if (prevInfo && prevInfo.kind === "ride" &&
+            (prevInfo.rk !== e.rk || prevInfo.dir !== e.dir)) {
+          penalty = TRANSFER_PENALTY_MIN;
+        }
+        const nd = d + e.cost + penalty;
+        if (nd < (dist.get(e.to) ?? Infinity)) {
+          dist.set(e.to, nd);
+          prev.set(e.to, { from: id, cost: e.cost + penalty, kind: "ride", rk: e.rk, dir: e.dir });
+          pq.push({ id: e.to, d: nd });
+        }
+      }
+
+      if (prevInfo && prevInfo.kind !== "ride" && prevInfo.kind !== "walk_start") continue;
+      for (const n of neighborsWithinRadius(stops, id, TRANSFER_WALK_MAX_M)) {
+        const walkMin = n.distance / WALK_SPEED_M_PER_MIN;
+        const cost = walkMin + TRANSFER_PENALTY_MIN;
+        const nd = d + cost;
+        if (nd < (dist.get(n.id) ?? Infinity)) {
+          dist.set(n.id, nd);
+          prev.set(n.id, { from: id, cost, kind: "walk_transfer", walkM: n.distance });
+          pq.push({ id: n.id, d: nd });
         }
       }
     }
 
-    const direct = [...byRoute.values()].sort((a, b) =>
-      a.totalMin - b.totalMin || compareRouteIds(a.route.id, b.route.id)
-    );
+    if (!dist.has(VIRTUAL_DEST)) return [];
 
-    // 1-interchange: route_A from origin-area → shared stop → route_B to
-    // dest-area. Only attempted when no direct option exists or when the
-    // best direct is slow (so cheap interchanges can outperform).
-    let interchange = [];
-    if (!direct.length || direct[0].totalMin > 25) {
-      interchange = await planOneInterchange(fromStops, toStops, sr);
+    const trips = [];
+    const seen = new Set();
+    const destCandidates = [];
+    for (const [stopId, walkMin] of destSet) {
+      if (!dist.has(stopId)) continue;
+      destCandidates.push({ stopId, total: dist.get(stopId) + walkMin });
     }
+    destCandidates.sort((a, b) => a.total - b.total);
 
-    return { direct, interchange };
+    for (const c of destCandidates) {
+      const trip = reconstructTrip(c.stopId, c.total, prev, stops, routesByRk, fromEnd, toEnd);
+      if (!trip) continue;
+      const sig = trip.legs.filter((l) => l.kind === "ride")
+                          .map((l) => `${l.route.rk}_${l.dir}`).join("|");
+      if (seen.has(sig)) continue;
+      seen.add(sig);
+      trips.push(trip);
+      if (trips.length >= TRIP_RESULT_LIMIT) break;
+    }
+    return trips;
   }
 
-  async function planOneInterchange(fromStops, toStops, sr) {
-    const out = [];
-    // For each origin-area stop, the routes that serve it
-    const fromRouteCands = new Map();
-    for (const oStop of fromStops) {
-      for (const rk of (sr[oStop.id] || [])) {
-        if (!fromRouteCands.has(rk)) fromRouteCands.set(rk, []);
-        fromRouteCands.get(rk).push(oStop);
-      }
+  // Walk back through the `prev` map from a chosen alighting stop, collect
+  // raw edge-steps, then collapse consecutive same-route ride edges into a
+  // single leg. Returns null if reconstruction fails (e.g., stale state).
+  function reconstructTrip(alightStopId, totalMin, prev, stops, routesByRk, fromEnd, toEnd) {
+    // Walk back from `alightStopId`.
+    let cursor = alightStopId;
+    const reversed = [];
+    while (cursor && cursor !== VIRTUAL_ORIGIN) {
+      const p = prev.get(cursor);
+      if (!p) return null;
+      reversed.push({ ...p, toStopId: cursor });
+      cursor = p.from;
     }
-    const toRouteCands = new Map();
-    for (const dStop of toStops) {
-      for (const rk of (sr[dStop.id] || [])) {
-        if (!toRouteCands.has(rk)) toRouteCands.set(rk, []);
-        toRouteCands.get(rk).push(dStop);
-      }
-    }
+    reversed.reverse();
+    // Synthesise the walk_end leg from the alighting stop to the user's
+    // destination address.
+    const alightStop = stops[alightStopId];
+    const walkEndM = alightStop ? distanceM(alightStop.la, alightStop.lg, toEnd.lat, toEnd.lng) : 0;
+    reversed.push({
+      kind: "walk_end",
+      from: alightStopId,
+      toStopId: null,
+      cost: walkEndM / WALK_SPEED_M_PER_MIN,
+      walkM: walkEndM,
+    });
 
-    // Cap how many candidate first-leg routes we explore so the
-    // cross-product stays manageable.
-    const fromKeys = [...fromRouteCands.keys()].slice(0, 8);
-    const toKeys   = new Set(toRouteCands.keys());
-
-    for (const rkA of fromKeys) {
-      const routeA = state.routes.find((r) => r.rk === rkA);
-      if (!routeA) continue;
-      for (const dirA of (routeA.dirs && routeA.dirs.length ? routeA.dirs : [1])) {
-        let geoA;
-        try { geoA = await fetchJson(`${DATA_BASE}/geometry/${rkA}_${dirA}.json`); }
-        catch { continue; }
-        const aStops = geoA.stops || [];
-        // Build a fast lookup: stop_id → index on route A
-        const aIdx = new Map();
-        aStops.forEach((s, i) => aIdx.set(s.stop_id, i));
-
-        for (const oStop of fromRouteCands.get(rkA) || []) {
-          const oIdx = aIdx.get(oStop.id);
-          if (oIdx == null) continue;
-          // For each subsequent stop on A (after oIdx), check whether that
-          // stop is served by any route that also reaches dest area.
-          for (let j = oIdx + 1; j < aStops.length; j++) {
-            const interStopId = aStops[j].stop_id;
-            const interRoutes = sr[interStopId] || [];
-            for (const rkB of interRoutes) {
-              if (rkB === rkA) continue;
-              if (!toKeys.has(rkB)) continue;
-              const routeB = state.routes.find((r) => r.rk === rkB);
-              if (!routeB) continue;
-              for (const dirB of (routeB.dirs && routeB.dirs.length ? routeB.dirs : [1])) {
-                let geoB;
-                try { geoB = await fetchJson(`${DATA_BASE}/geometry/${rkB}_${dirB}.json`); }
-                catch { continue; }
-                const bStops = geoB.stops || [];
-                const bIdx = bStops.findIndex((s) => s.stop_id === interStopId);
-                if (bIdx < 0) continue;
-                for (const dStop of toRouteCands.get(rkB) || []) {
-                  const tIdx = bStops.findIndex((s) => s.stop_id === dStop.id);
-                  if (tIdx <= bIdx) continue;
-                  const hopsA = j - oIdx;
-                  const hopsB = tIdx - bIdx;
-                  const transitMin = (routeA.co === "MTR" ? 2 : 1.5) * hopsA
-                                   + (routeB.co === "MTR" ? 2 : 1.5) * hopsB
-                                   + 4;  // transfer penalty
-                  const walkMin = (oStop.distance + dStop.distance) / 80;
-                  const total = walkMin + transitMin;
-                  out.push({
-                    type: "interchange",
-                    totalMin: total,
-                    walkMin,
-                    legA: {
-                      route: routeA, rk: rkA, dir: dirA,
-                      boardId: oStop.id, alightId: interStopId,
-                      boardName: aStops[oIdx].stop_name_tc || aStops[oIdx].stop_name,
-                      alightName: aStops[j].stop_name_tc || aStops[j].stop_name,
-                      hops: hopsA,
-                    },
-                    legB: {
-                      route: routeB, rk: rkB, dir: dirB,
-                      boardId: interStopId, alightId: dStop.id,
-                      boardName: bStops[bIdx].stop_name_tc || bStops[bIdx].stop_name,
-                      alightName: bStops[tIdx].stop_name_tc || bStops[tIdx].stop_name,
-                      hops: hopsB,
-                    },
-                    board:  { id: oStop.id, distance: oStop.distance },
-                    alight: { id: dStop.id, distance: dStop.distance },
-                  });
-                  // Cap results per (rkA, rkB) at 1 to avoid cross-product
-                  // explosion.
-                  break;
-                }
-                break;
-              }
-            }
-            // Cap interchange depth per origin-leg.
-            if (out.length > 30) break;
-          }
+    // Collapse consecutive ride steps on (rk, dir).
+    const legs = [];
+    for (const step of reversed) {
+      if (step.kind === "ride") {
+        const last = legs[legs.length - 1];
+        if (last && last.kind === "ride" && last.route.rk === step.rk && last.dir === step.dir) {
+          last.alightStopId = step.toStopId;
+          last.hops += 1;
+          last.min += step.cost;
+        } else {
+          const route = routesByRk.get(step.rk);
+          if (!route) return null;
+          legs.push({
+            kind: "ride",
+            route,
+            rk: step.rk,
+            dir: step.dir,
+            boardStopId: step.from,
+            alightStopId: step.toStopId,
+            hops: 1,
+            min: step.cost,
+          });
         }
+      } else if (step.kind === "walk_start") {
+        legs.push({
+          kind: "walk_start",
+          fromStopId: null,
+          toStopId: step.toStopId,
+          walkM: step.walkM,
+          min: step.cost,
+        });
+      } else if (step.kind === "walk_transfer") {
+        legs.push({
+          kind: "walk_transfer",
+          fromStopId: step.from,
+          toStopId: step.toStopId,
+          walkM: step.walkM,
+          min: step.cost,
+        });
+      } else if (step.kind === "walk_end") {
+        legs.push({
+          kind: "walk_end",
+          fromStopId: step.from,
+          toStopId: null,
+          walkM: step.walkM,
+          min: step.cost,
+        });
       }
-      if (out.length > 30) break;
     }
-    out.sort((a, b) => a.totalMin - b.totalMin);
-    return out.slice(0, 6);
+
+    // Annotate ride legs with human-readable stop names from the bundled
+    // stops dictionary. (Stop names live in stops.json, not in the legs.)
+    for (const leg of legs) {
+      if (leg.kind === "ride") {
+        const bs = stops[leg.boardStopId];
+        const as = stops[leg.alightStopId];
+        leg.boardName  = bs ? (bs.nt || bs.ne) : leg.boardStopId;
+        leg.alightName = as ? (as.nt || as.ne) : leg.alightStopId;
+      } else if (leg.kind === "walk_transfer") {
+        const bs = stops[leg.fromStopId];
+        const as = stops[leg.toStopId];
+        leg.fromName = bs ? (bs.nt || bs.ne) : leg.fromStopId;
+        leg.toName   = as ? (as.nt || as.ne) : leg.toStopId;
+      } else if (leg.kind === "walk_start") {
+        const as = stops[leg.toStopId];
+        leg.toName = as ? (as.nt || as.ne) : leg.toStopId;
+      } else if (leg.kind === "walk_end") {
+        const bs = stops[leg.fromStopId];
+        leg.fromName = bs ? (bs.nt || bs.ne) : leg.fromStopId;
+      }
+    }
+
+    // Total minutes computed from the leg breakdown — this matches what the
+    // user sees, including the synthesised walk_end which wasn't part of
+    // the original Dijkstra terminator cost.
+    const total = legs.reduce((acc, l) => acc + (l.min || 0), 0);
+    const rideLegs = legs.filter((l) => l.kind === "ride");
+    if (!rideLegs.length) return null;  // pure walk: skip, taxi card covers this
+
+    return {
+      totalMin: total,
+      transfers: Math.max(0, rideLegs.length - 1),
+      legs,
+      // Compat fields so the older "direct/interchange" map drawer keeps
+      // working for the top result.
+      route: rideLegs[0].route,
+      dir: rideLegs[0].dir,
+      board: { id: rideLegs[0].boardStopId, name: rideLegs[0].boardName,
+               distance: legs[0].kind === "walk_start" ? legs[0].walkM : 0 },
+      alight: { id: rideLegs[rideLegs.length - 1].alightStopId,
+                name: rideLegs[rideLegs.length - 1].alightName,
+                distance: legs[legs.length - 1].kind === "walk_end" ? legs[legs.length - 1].walkM : 0 },
+      hops: rideLegs.reduce((acc, l) => acc + l.hops, 0),
+    };
   }
 
-  function renderPlanResults(trips, fromEnd, toEnd) {
+  const LEG_NUMBERS = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"];
+
+  function renderPlanResults(result, fromEnd, toEnd) {
     const el = $("yuu-plan-results");
-    const direct = trips.direct || [];
-    const inter  = trips.interchange || [];
+    const trips = (result && result.trips) || [];
 
     // Taxi is always offered as a fallback row — even when transit options
     // exist, the user wants to compare against a "what would a cab cost?"
@@ -1994,7 +2219,7 @@
       </div>
     </div>` : "";
 
-    if (!direct.length && !inter.length) {
+    if (!trips.length) {
       el.innerHTML = taxiCard
         ? `<div class="yuu-plan-empty">No transit route found between these endpoints.</div>` +
           `<div class="yuu-plan-section-title yuu-plan-taxi-title">Taxi instead</div>${taxiCard}`
@@ -2002,64 +2227,10 @@
       return;
     }
 
-    const interHtml = inter.map((t) => {
-      const a = t.legA, b = t.legB;
-      const ca = routeColor(a.route), cb = routeColor(b.route);
-      const fareA = fareEstimate(a.route, a.hops);
-      const fareB = fareEstimate(b.route, b.hops);
-      const fareLine = (fareA || fareB)
-        ? `<span class="yuu-plan-card-fare-pair">${fareA?.str || ""}${fareA && fareB ? " + " : ""}${fareB?.str || ""}</span>`
-        : "";
-      return `<div class="yuu-plan-card yuu-plan-card-inter">
-        <div class="yuu-plan-card-head" style="--card-color:${ca}">
-          <span class="yuu-plan-card-stack">
-            <span class="yuu-badge ${a.route.co}" style="background:${ca};color:#fff">${escapeHtml(a.route.id)}</span>
-            <span class="yuu-plan-card-arrow">→</span>
-            <span class="yuu-badge ${b.route.co}" style="background:${cb};color:#fff">${escapeHtml(b.route.id)}</span>
-          </span>
-          <div class="yuu-plan-card-meta">
-            <span class="yuu-plan-card-co">1 transfer ${fareLine}</span>
-            <span class="yuu-plan-card-direction">→ ${escapeHtml(displayEn(b.alightName || ""))}</span>
-          </div>
-          <span class="yuu-plan-card-hops">${Math.round(t.totalMin)} min</span>
-        </div>
-        <div class="yuu-plan-card-body yuu-plan-card-legs">
-          <div>① ${escapeHtml(a.route.id)} · ${escapeHtml(a.boardName)} → ${escapeHtml(a.alightName)} (${a.hops})</div>
-          <div>② ${escapeHtml(b.route.id)} · ${escapeHtml(b.boardName)} → ${escapeHtml(b.alightName)} (${b.hops})</div>
-        </div>
-      </div>`;
-    }).join("");
-
     // Transit options first (sorted by time), taxi at the bottom as a
     // baseline-compare card.
-    const summary = `<div class="yuu-plan-section-title">${direct.length + inter.length} transit option${(direct.length + inter.length) === 1 ? "" : "s"} · sorted by total time</div>`;
-    const transitHtml = direct.slice(0, 6).map((t) => {
-      const rc = routeColor(t.route);
-      const opName = COMPANY_LABEL[t.route.co] || t.route.co;
-      const dirLabel = (t.dir === 1 ? t.route.de : t.route.oe) || "";
-      const totalTxt = `${Math.round(t.totalMin)} min`;
-      const walkParts = [];
-      if (t.board.distance > 50)  walkParts.push(`Walk ${Math.round(t.board.distance)} m to board`);
-      if (t.alight.distance > 50) walkParts.push(`walk ${Math.round(t.alight.distance)} m at end`);
-      const walkLine = walkParts.length ? `<div class="yuu-plan-card-walk">🚶 ${walkParts.join(" · ")}</div>` : "";
-      const fare = fareEstimate(t.route, t.hops);
-      return `<div class="yuu-plan-card">
-        <div class="yuu-plan-card-head" style="--card-color:${rc}">
-          <span class="yuu-badge ${t.route.co}" style="background:${rc};color:#fff">${escapeHtml(t.route.id)}</span>
-          <div class="yuu-plan-card-meta">
-            <span class="yuu-plan-card-co">${escapeHtml(opName)}</span>
-            <span class="yuu-plan-card-direction">→ ${escapeHtml(displayEn(dirLabel))}</span>
-          </div>
-          ${fare ? `<span class="yuu-plan-card-fare">${escapeHtml(fare.str)}</span>` : ""}
-          <span class="yuu-plan-card-hops">${escapeHtml(totalTxt)}</span>
-        </div>
-        <div class="yuu-plan-card-body">
-          <span class="yuu-plan-card-leg">${escapeHtml(t.board.name || "")} → ${escapeHtml(t.alight.name || "")} · ${t.hops} stop${t.hops === 1 ? "" : "s"}</span>
-          <button type="button" class="yuu-plan-open" data-rk="${escapeHtml(t.route.rk)}" data-dir="${t.dir}">View →</button>
-        </div>
-        ${walkLine}
-      </div>`;
-    }).join("") + interHtml;
+    const summary = `<div class="yuu-plan-section-title">${trips.length} transit option${trips.length === 1 ? "" : "s"} · sorted by total time</div>`;
+    const transitHtml = trips.map((t) => renderTripCard(t)).join("");
 
     const taxiSection = taxiCard
       ? `<div class="yuu-plan-section-title yuu-plan-taxi-title">Or take a taxi</div>${taxiCard}`
@@ -2077,10 +2248,68 @@
       });
     });
 
-    // Draw the top option (cheapest) on the Plan map.
+    // Draw the top option (fastest) on the Plan map.
     ensurePlanMapRendered();
-    const top = direct[0] || inter[0];
-    if (top) drawPlanOnMap(top, fromEnd, toEnd);
+    if (trips[0]) drawPlanOnMap(trips[0], fromEnd, toEnd);
+  }
+
+  // Render one multi-leg trip as a card. Each ride leg gets a coloured route
+  // badge in the header; walking transfers show as 🚶 with the metres.
+  function renderTripCard(trip) {
+    const rideLegs = trip.legs.filter((l) => l.kind === "ride");
+    const badges = rideLegs.map((l) => {
+      const rc = routeColor(l.route);
+      return `<span class="yuu-badge ${l.route.co}" style="background:${rc};color:#fff">${escapeHtml(l.route.id)}</span>`;
+    }).join('<span class="yuu-plan-card-arrow">→</span>');
+    const headColor = routeColor(rideLegs[0].route);
+    const fareParts = rideLegs.map((l) => fareEstimate(l.route, l.hops)).filter(Boolean);
+    const fareStr = fareParts.length ? fareParts.map((f) => f.str).join(" + ") : "";
+    const transfersLabel = rideLegs.length === 1
+      ? "Direct"
+      : `${rideLegs.length - 1} transfer${rideLegs.length - 1 === 1 ? "" : "s"}`;
+    const fareLine = fareStr ? `<span class="yuu-plan-card-fare-pair">${escapeHtml(fareStr)}</span>` : "";
+    const lastLeg = rideLegs[rideLegs.length - 1];
+    const lastDir = (lastLeg.dir === 1 ? lastLeg.route.de : lastLeg.route.oe) || lastLeg.alightName;
+
+    const legBodyHtml = renderLegsBody(trip.legs);
+
+    return `<div class="yuu-plan-card ${rideLegs.length > 1 ? "yuu-plan-card-inter" : ""}">
+      <div class="yuu-plan-card-head" style="--card-color:${headColor}">
+        <span class="yuu-plan-card-stack">${badges}</span>
+        <div class="yuu-plan-card-meta">
+          <span class="yuu-plan-card-co">${escapeHtml(transfersLabel)} ${fareLine}</span>
+          <span class="yuu-plan-card-direction">→ ${escapeHtml(displayEn(lastDir))}</span>
+        </div>
+        <span class="yuu-plan-card-hops">${Math.round(trip.totalMin)} min</span>
+      </div>
+      <div class="yuu-plan-card-body yuu-plan-card-legs">
+        ${legBodyHtml}
+      </div>
+    </div>`;
+  }
+
+  function renderLegsBody(legs) {
+    let rideIdx = 0;
+    const rows = [];
+    for (const leg of legs) {
+      if (leg.kind === "ride") {
+        const n = LEG_NUMBERS[rideIdx++] || `(${rideIdx})`;
+        const opName = COMPANY_LABEL[leg.route.co] || leg.route.co;
+        rows.push(
+          `<div>${n} <strong>${escapeHtml(leg.route.id)}</strong> · ${escapeHtml(opName)} · ` +
+          `${escapeHtml(leg.boardName || "")} → ${escapeHtml(leg.alightName || "")} ` +
+          `(${leg.hops} stop${leg.hops === 1 ? "" : "s"}) ` +
+          `<button type="button" class="yuu-plan-open" data-rk="${escapeHtml(leg.route.rk)}" data-dir="${leg.dir}">View →</button></div>`
+        );
+      } else if (leg.kind === "walk_start" && leg.walkM > 50) {
+        rows.push(`<div class="yuu-plan-card-walk">🚶 Walk ${Math.round(leg.walkM)} m to ${escapeHtml(leg.toName || "")}</div>`);
+      } else if (leg.kind === "walk_transfer") {
+        rows.push(`<div class="yuu-plan-card-walk">🚶 Transfer · walk ${Math.round(leg.walkM)} m to ${escapeHtml(leg.toName || "")}</div>`);
+      } else if (leg.kind === "walk_end" && leg.walkM > 50) {
+        rows.push(`<div class="yuu-plan-card-walk">🚶 Walk ${Math.round(leg.walkM)} m to destination</div>`);
+      }
+    }
+    return rows.join("");
   }
 
   function passesModeFilter(route) {
@@ -2126,6 +2355,20 @@
       state.stopRoutes = {};
     }
     return state.stopRoutes;
+  }
+
+  // Bundled lookup: route_key → direction → ordered list of stop_ids.
+  // Loaded once by the Dijkstra trip planner to build the transit graph
+  // without paying 3000+ HTTP round-trips for per-route geometry files.
+  async function ensureSequencesLoaded() {
+    if (state.stopSequences) return state.stopSequences;
+    try {
+      state.stopSequences = await fetchJson(`${DATA_BASE}/stop_sequences.json`);
+    } catch (err) {
+      console.warn("stop_sequences.json not available — re-run publish.sh", err);
+      state.stopSequences = {};
+    }
+    return state.stopSequences;
   }
 
   function renderMeta() {

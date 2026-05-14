@@ -1,1 +1,1 @@
-{"generated_at":"2026-05-03T14:35:28.004271+00:00","schema_version":2,"counts":{"routes":1456,"stops":10211,"stop_routes":11747,"geometry":3146,"mtr_lines":10,"macau_lrt":4,"macau_bus":92,"macau_shuttles":59}}
+{"generated_at":"2026-05-14T14:47:49.553534+00:00","schema_version":2,"counts":{"routes":1456,"stops":10211,"stop_routes":11747,"stop_sequences":1965,"geometry":3146,"mtr_lines":10,"macau_lrt":4,"macau_bus":92,"macau_shuttles":59}}
