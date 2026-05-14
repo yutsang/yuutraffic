@@ -1757,6 +1757,11 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  /* Stack above any suggest dropdown that extends down from the To input.
+     Without this, the Plan button gets visually + click-through-covered by
+     an open autocomplete list, so clicks on it silently hit the dropdown. */
+  position: relative;
+  z-index: 1100;
 }
 
 .yuu-plan-swap {

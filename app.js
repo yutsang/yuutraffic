@@ -1647,9 +1647,16 @@
     input.addEventListener("focus", () => {
       if (input.value.trim()) searchStops(input.value, suggest, input);
     });
-    document.addEventListener("click", (e) => {
-      if (!e.target.closest(".yuu-plan-input-wrap")) suggest.hidden = true;
-    });
+    // pointerdown on capture: dismiss the dropdown BEFORE the click event is
+    // dispatched, so a tap on the Plan button (which the dropdown was
+    // visually overlapping) doesn't get swallowed by the dropdown's hit-
+    // testing. Clicks on suggestion items are allowed through because the
+    // item's own click handler runs after this fires.
+    document.addEventListener("pointerdown", (e) => {
+      if (e.target.closest(".yuu-plan-suggest-item")) return;
+      if (e.target === input) return;
+      suggest.hidden = true;
+    }, true);
   }
 
   async function searchStops(q, suggest, input) {
@@ -1741,15 +1748,18 @@
     if (_geocodeCache.has(key)) return _geocodeCache.get(key);
     if (_geocodeInflight) await _geocodeInflight.catch(() => {});
     _geocodeInflight = (async () => {
-      // viewbox biases results to the HK + MO bounding box so when a name
-      // exists in both jurisdictions the local one wins. countrycodes=hk,mo
-      // restricts to those two SARs only.
+      // viewbox + bounded=1 restricts results geographically to the HK + MO
+      // bounding box. We deliberately do NOT pass `countrycodes=hk,mo`
+      // because many HK features on OSM lack the country=HK/MO tag (they're
+      // tagged country=CN as a SAR of China, or have no country tag at all)
+      // and that filter silently drops them — e.g. "Koko Hills", "Prince's
+      // Building" both return zero hits with the country filter on. The
+      // viewbox is already a tighter geographic constraint than countries.
       const params = new URLSearchParams({
         q: query,
         format: "json",
         limit: "8",
         "accept-language": "en,zh-HK,zh,pt",
-        countrycodes: "hk,mo",
         viewbox: "113.50,22.62,114.50,22.05",
         bounded: "1",
         addressdetails: "0",
