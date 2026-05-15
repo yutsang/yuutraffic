@@ -1652,17 +1652,46 @@
     // visually overlapping) doesn't get swallowed by the dropdown's hit-
     // testing. Clicks on suggestion items are allowed through because the
     // item's own click handler runs after this fires.
+    // pointerdown on capture: dismiss the dropdown BEFORE the click event is
+    // dispatched, so a tap on the Plan button (which the dropdown was
+    // visually overlapping) doesn't get swallowed by the dropdown's hit-
+    // testing. Stay open if the user is interacting with EITHER plan input
+    // or a suggestion item.
     document.addEventListener("pointerdown", (e) => {
       if (e.target.closest(".yuu-plan-suggest-item")) return;
-      if (e.target === input) return;
+      if (e.target.matches("#yuu-plan-from, #yuu-plan-to")) return;
       suggest.hidden = true;
     }, true);
   }
 
+  // Trim Nominatim's verbose `display_name` ("KOKO HILLS, 3, 茶果嶺 Cha Kwo
+  // Ling, 觀塘區, 九龍, 香港, 中国") down to the first 2 meaningful comma
+  // segments. Keeps the dropdown row readable while still distinguishing
+  // similarly-named places.
+  function shortAddrLabel(displayName) {
+    if (!displayName) return "";
+    const parts = displayName.split(",").map((s) => s.trim()).filter(Boolean);
+    if (parts.length <= 2) return parts.join(", ");
+    // Drop trailing country / "中国" boilerplate, then take the first two
+    // segments — typically "name, neighbourhood".
+    return parts.slice(0, 2).join(", ");
+  }
+
+  // Two-phase render. Fast-path: stop matches show immediately, so the
+  // dropdown is responsive even while Nominatim is still in flight. Slow-
+  // path: when Nominatim returns, merge places at the top of the list. A
+  // per-input request token prevents an earlier in-flight Nominatim call
+  // from overwriting a newer query's results.
   async function searchStops(q, suggest, input) {
     const query = (q || "").trim();
     if (query.length < 2) { suggest.hidden = true; return; }
+
+    const reqId = (input._planReq || 0) + 1;
+    input._planReq = reqId;
+
     const stops = await ensureStopsLoaded();
+    if (input._planReq !== reqId) return;  // user kept typing
+
     const lower = query.toLowerCase();
     const matches = [];
     for (const [id, s] of Object.entries(stops)) {
@@ -1674,14 +1703,19 @@
       }
     }
 
-    // Always offer Nominatim address suggestions as a complement to stop
-    // matches — addresses geocode to (lat, lng) which the planner uses to
-    // find walking-distance stops near each end.
-    let addresses = [];
-    try {
-      addresses = await geocodeAddress(query);
-    } catch (e) { /* network blip → fall through */ }
+    // Phase 1: render stop matches synchronously. If `matches` is empty,
+    // we'll show a transient "still searching…" until Nominatim returns.
+    renderSuggest(suggest, input, matches, [], query);
 
+    // Phase 2: merge in Nominatim places when they arrive.
+    let addresses = [];
+    try { addresses = await geocodeAddress(query); }
+    catch { /* network blip */ }
+    if (input._planReq !== reqId) return;
+    renderSuggest(suggest, input, matches, addresses, query);
+  }
+
+  function renderSuggest(suggest, input, matches, addresses, query) {
     const stopHtml = matches.map((m) => {
       const tcRow = m.nt ? `<span class="yuu-plan-suggest-tc">${escapeHtml(m.nt)}</span>` : "";
       const en = displayEn(m.ne || "");
@@ -1695,16 +1729,19 @@
       </div>`;
     }).join("");
 
-    const addrHtml = addresses.slice(0, 5).map((a) => `
-      <div class="yuu-plan-suggest-item" data-mode="addr"
-           data-lat="${a.lat}" data-lng="${a.lon}"
-           data-display="${escapeHtml(a.display_name)}">
-        <span class="yuu-plan-suggest-tc">${escapeHtml(a.display_name)}</span>
+    const addrHtml = (addresses || []).slice(0, 5).map((a) => {
+      const short = shortAddrLabel(a.display_name);
+      return `<div class="yuu-plan-suggest-item" data-mode="addr"
+                   data-lat="${a.lat}" data-lng="${a.lon}"
+                   data-display="${escapeHtml(short)}"
+                   title="${escapeHtml(a.display_name || "")}">
+        <span class="yuu-plan-suggest-tc">${escapeHtml(short)}</span>
         <span class="yuu-plan-suggest-co">📍 Address</span>
-      </div>`).join("");
+      </div>`;
+    }).join("");
 
     if (!stopHtml && !addrHtml) {
-      suggest.innerHTML = `<div class="yuu-plan-suggest-empty">No matches</div>`;
+      suggest.innerHTML = `<div class="yuu-plan-suggest-empty">No matches yet · still searching…</div>`;
       suggest.hidden = false;
       return;
     }
@@ -2314,7 +2351,15 @@
       } else if (leg.kind === "walk_start" && leg.walkM > 50) {
         rows.push(`<div class="yuu-plan-card-walk">🚶 Walk ${Math.round(leg.walkM)} m to ${escapeHtml(leg.toName || "")}</div>`);
       } else if (leg.kind === "walk_transfer") {
-        rows.push(`<div class="yuu-plan-card-walk">🚶 Transfer · walk ${Math.round(leg.walkM)} m to ${escapeHtml(leg.toName || "")}</div>`);
+        // Same physical stop served by two operators (e.g., KMB + CTB at
+        // the same kerb) shows up as a sub-5 m "walk" between distinct
+        // stop_ids. Render as "Same stop" so the user doesn't see a
+        // misleading "walk 0 m" / "walk 2 m" instruction.
+        const sameStop = leg.walkM < 8;
+        const label = sameStop
+          ? `🔁 Transfer at same stop · ${escapeHtml(leg.toName || "")}`
+          : `🚶 Transfer · walk ${Math.round(leg.walkM)} m to ${escapeHtml(leg.toName || "")}`;
+        rows.push(`<div class="yuu-plan-card-walk">${label}</div>`);
       } else if (leg.kind === "walk_end" && leg.walkM > 50) {
         rows.push(`<div class="yuu-plan-card-walk">🚶 Walk ${Math.round(leg.walkM)} m to destination</div>`);
       }

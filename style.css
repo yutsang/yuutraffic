@@ -1660,6 +1660,14 @@
   position: relative;
 }
 
+/* Stack the To field (and any later field) above the From field's suggest
+   dropdown, so a tap meant for the To input never lands on a From
+   suggestion. Each subsequent field gets its own stacking context. */
+.yuu-plan-field + .yuu-plan-field {
+  position: relative;
+  z-index: 1050;
+}
+
 .yuu-plan-input-wrap input {
   width: 100%;
   padding: 10px 14px;
@@ -1686,7 +1694,11 @@
   background: var(--yuu-surface);
   border: 1px solid var(--yuu-border);
   border-radius: var(--yuu-radius);
-  max-height: 280px;
+  /* Capped so the dropdown rarely extends into the next form field. Scroll
+     within the box for additional suggestions. Without this cap (was 280px)
+     the From dropdown covered the To input — taps meant for the To field
+     actually picked a From suggestion. */
+  max-height: 180px;
   overflow-y: auto;
   z-index: 1000;
   box-shadow: var(--yuu-shadow-md);
