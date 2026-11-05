@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#00338d" />
+<meta name="description" content="Hong Kong public transport explorer — route maps and live ETA from HK gov open data." />
+<title>YuuTraffic — Hong Kong Public Transport</title>
+
+<link rel="preconnect" href="https://unpkg.com" crossorigin />
+<link rel="preconnect" href="https://a.basemaps.cartocdn.com" crossorigin />
+<link rel="preconnect" href="https://data.etabus.gov.hk" crossorigin />
+<link rel="preconnect" href="https://rt.data.gov.hk" crossorigin />
+<link rel="preconnect" href="https://data.etagmb.gov.hk" crossorigin />
+
+<link rel="preload" href="./data/routes.json" as="fetch" crossorigin />
+
+<link rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin="" />
+<link rel="stylesheet" href="./style.css?v=20260515010014-c387b923" />
+</head>
+<body>
+<div id="yuu" class="yuu-widget">
+  <header class="yuu-header">
+    <h1 class="yuu-title" hidden>Traffic</h1>
+    <div class="yuu-region-switch" role="tablist" aria-label="Region">
+      <button type="button" class="yuu-region active" data-region="hk" role="tab" aria-selected="true">HK 香港</button>
+      <button type="button" class="yuu-region"        data-region="mo" role="tab" aria-selected="false">澳門 Macau</button>
+    </div>
+    <div class="yuu-mode-tabs" role="tablist">
+      <button type="button" class="yuu-tab active" data-tab="bus"     data-region="hk"  role="tab" aria-selected="true">Bus</button>
+      <button type="button" class="yuu-tab"        data-tab="mtr"     data-region="hk"  role="tab" aria-selected="false">MTR</button>
+      <button type="button" class="yuu-tab"        data-tab="mobus"   data-region="mo"  role="tab" aria-selected="false" hidden>MOBus</button>
+      <button type="button" class="yuu-tab"        data-tab="lrt"     data-region="mo"  role="tab" aria-selected="false" hidden>輕軌 LRT</button>
+      <button type="button" class="yuu-tab"        data-tab="shuttle" data-region="mo"  role="tab" aria-selected="false" hidden>財車 Shuttle</button>
+      <button type="button" class="yuu-tab"        data-tab="plan"    data-region="any" role="tab" aria-selected="false">Plan</button>
+    </div>
+    <div class="yuu-search" id="yuu-explore-controls">
+      <input type="search"
+             id="yuu-search-input"
+             placeholder="Search route, or leave empty for nearby"
+             autocomplete="off"
+             spellcheck="false"
+             aria-label="Search route" />
+      <select id="yuu-mode-select" class="yuu-mode-select" aria-label="Filter by operator">
+        <option value="">All</option>
+        <option value="KMB">KMB / LWB</option>
+        <option value="CTB">Citybus</option>
+        <option value="GMB">Green Minibus</option>
+        <option value="MTRB">MTR Bus</option>
+        <option value="RMB">Red Minibus</option>
+      </select>
+      <div id="yuu-search-results" class="yuu-search-results" hidden></div>
+    </div>
+  </header>
+
+  <div id="yuu-map" class="yuu-map" aria-label="Route map"></div>
+
+  <main class="yuu-main">
+    <section id="yuu-welcome" class="yuu-welcome">
+      <p class="yuu-welcome-lead">Search a route number or destination. Focus the search box empty to see routes passing within 250 m of your current location.</p>
+      <p class="yuu-hint">Static data refreshes weekly · Live ETA fetched directly from HK government open data</p>
+      <p class="yuu-legend">
+        <span class="yuu-eta-time yuu-live">⚡ Live ETA</span>
+        <span class="yuu-eta-time yuu-scheduled">⏱ Scheduled</span>
+        <span class="yuu-eta-time yuu-arriving">Arriving</span>
+      </p>
+    </section>
+
+    <section id="yuu-shuttle-view" class="yuu-shuttle-view" hidden>
+      <div class="yuu-shuttle-intro">Pick a transit hub to see which casinos run a shuttle there. From → To search lives in the <strong>Plan</strong> tab.</div>
+      <div class="yuu-shuttle-hubs" role="tablist">
+        <button type="button" class="yuu-hub-btn" data-hub="BG"   data-stop="MOSC_BG">關閘<br><small>Border Gate</small></button>
+        <button type="button" class="yuu-hub-btn" data-hub="OHFT" data-stop="MOSC_OHFT">外港碼頭<br><small>Outer Harbour FT</small></button>
+        <button type="button" class="yuu-hub-btn" data-hub="TFT"  data-stop="MOSC_TFT">氹仔碼頭<br><small>Taipa FT</small></button>
+        <button type="button" class="yuu-hub-btn" data-hub="AIR"  data-stop="MOSC_AIR">機場<br><small>Airport</small></button>
+        <button type="button" class="yuu-hub-btn" data-hub="HZMB" data-stop="MOSC_HZMB">港珠澳口岸<br><small>HZMB Port</small></button>
+      </div>
+      <div class="yuu-shuttle-body">
+        <div id="yuu-shuttle-routes" class="yuu-shuttle-routes"></div>
+        <div id="yuu-shuttle-map" class="yuu-shuttle-map" aria-label="Shuttle hub map"></div>
+      </div>
+    </section>
+
+    <section id="yuu-mtr-view" class="yuu-mtr-view" hidden>
+      <div class="yuu-mtr-toggle" role="tablist">
+        <button class="yuu-mtr-toggle-btn active" data-mtr-mode="diagram" type="button">Diagram</button>
+        <button class="yuu-mtr-toggle-btn"        data-mtr-mode="map"     type="button">Map</button>
+      </div>
+
+      <div id="yuu-mtr-diagram" class="yuu-mtr-diagram">
+        <div class="yuu-mtr-diagram-form">
+          <div class="yuu-plan-input-wrap">
+            <input type="search" id="yuu-mtr-from-input" autocomplete="off" spellcheck="false" placeholder="From station / 起點">
+            <div class="yuu-plan-suggest" id="yuu-mtr-from-suggest" hidden></div>
+          </div>
+          <div class="yuu-plan-input-wrap">
+            <input type="search" id="yuu-mtr-to-input" autocomplete="off" spellcheck="false" placeholder="To station / 終點">
+            <div class="yuu-plan-suggest" id="yuu-mtr-to-suggest" hidden></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="yuu-mtr-map" class="yuu-mtr-map" hidden></div>
+
+      <div id="yuu-mtr-journey" class="yuu-mtr-journey" hidden>
+        <div class="yuu-mtr-journey-form">
+          <div class="yuu-mtr-journey-end" data-which="from">
+            <span class="yuu-mtr-journey-label">From</span>
+            <span class="yuu-mtr-journey-value" id="yuu-mtr-from-val">—</span>
+          </div>
+          <div class="yuu-mtr-journey-end" data-which="to">
+            <span class="yuu-mtr-journey-label">To</span>
+            <span class="yuu-mtr-journey-value" id="yuu-mtr-to-val">—</span>
+          </div>
+          <button type="button" id="yuu-mtr-swap" title="Swap">⇆</button>
+          <button type="button" id="yuu-mtr-clear">Clear</button>
+        </div>
+        <div id="yuu-mtr-journey-result" class="yuu-mtr-journey-result"></div>
+      </div>
+    </section>
+
+    <section id="yuu-plan" class="yuu-plan" hidden>
+      <div class="yuu-plan-form">
+        <label class="yuu-plan-field">
+          <span class="yuu-plan-label">From</span>
+          <div class="yuu-plan-input-wrap">
+            <input type="search" id="yuu-plan-from" autocomplete="off" spellcheck="false"
+                   placeholder="Stop name or 中文名" />
+            <div class="yuu-plan-suggest" id="yuu-plan-from-suggest" hidden></div>
+          </div>
+        </label>
+        <label class="yuu-plan-field">
+          <span class="yuu-plan-label">To</span>
+          <div class="yuu-plan-input-wrap">
+            <input type="search" id="yuu-plan-to" autocomplete="off" spellcheck="false"
+                   placeholder="Stop name or 中文名" />
+            <div class="yuu-plan-suggest" id="yuu-plan-to-suggest" hidden></div>
+          </div>
+        </label>
+        <div class="yuu-plan-actions">
+          <button type="button" id="yuu-plan-swap" class="yuu-plan-swap" title="Swap">⇅</button>
+          <button type="button" id="yuu-plan-go" class="yuu-plan-go">Plan</button>
+        </div>
+      </div>
+      <div id="yuu-plan-map" class="yuu-plan-map"></div>
+      <div id="yuu-plan-results" class="yuu-plan-results"></div>
+    </section>
+
+    <section id="yuu-route" class="yuu-route" hidden>
+      <div class="yuu-route-header">
+        <span id="yuu-route-badge" class="yuu-badge"></span>
+        <div class="yuu-route-heading">
+          <div id="yuu-route-title" class="yuu-route-title"></div>
+          <div id="yuu-route-chips" class="yuu-route-chips" role="toolbar"></div>
+        </div>
+      </div>
+
+      <div class="yuu-stops-pane">
+        <div id="yuu-stops" class="yuu-stops" aria-label="Stop list"></div>
+        <div id="yuu-eta" class="yuu-eta" hidden>
+          <ol id="yuu-eta-list" class="yuu-eta-list"></ol>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="yuu-footer">
+    <span id="yuu-meta">Loading…</span>
+  </footer>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin="" defer></script>
+<script src="./app.js?v=20260515010014-c387b923" defer></script>
+</body>
+</html>
