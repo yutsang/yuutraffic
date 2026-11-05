@@ -1,0 +1,298 @@
+name: YuuTraffic v1.0 — KMB / CityBus CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  packages: write
+  security-events: write
+
+env:
+  # isort 8.x requires Python >=3.10; keep CI aligned with app runtime
+  PYTHON_VERSION: '3.11'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+    
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v5
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y sqlite3
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Create test database
+      run: |
+        rm -f data/01_raw/kmb_data.db  # Remove old DB if exists
+        mkdir -p data/01_raw
+        sqlite3 data/01_raw/kmb_data.db << 'EOF'
+        CREATE TABLE IF NOT EXISTS routes (
+          route_id TEXT PRIMARY KEY,
+          route_name TEXT,
+          origin_en TEXT,
+          destination_en TEXT,
+          service_type INTEGER,
+          company TEXT
+        );
+        CREATE TABLE IF NOT EXISTS stops (
+          stop_id TEXT PRIMARY KEY,
+          stop_name_en TEXT,
+          lat REAL,
+          lng REAL,
+          company TEXT
+        );
+        CREATE TABLE IF NOT EXISTS route_stops (
+          route_id TEXT,
+          stop_id TEXT,
+          direction INTEGER,
+          sequence INTEGER,
+          service_type INTEGER
+        );
+        INSERT INTO routes (route_id, route_name, origin_en, destination_en, service_type, company) VALUES ('65X', 'Route 65X', 'Tin Shui Wai', 'Tsim Sha Tsui', 1, 'KMB');
+        INSERT INTO stops (stop_id, stop_name_en, lat, lng, company) VALUES ('STOP1', 'Test Stop 1', 22.3193, 114.1694, 'KMB');
+        INSERT INTO route_stops (route_id, stop_id, direction, sequence, service_type) VALUES ('65X', 'STOP1', 1, 1, 1);
+        EOF
+    
+    - name: Code formatting with Black
+      run: |
+        black --check --diff src/ pages/ tests/
+    
+    - name: Import sorting with isort
+      run: |
+        isort --check-only --diff src/ pages/ tests/
+    
+    - name: Lint with Ruff
+      run: |
+        ruff check src/ pages/ tests/ --output-format=github
+    
+    - name: Type checking (if mypy config exists)
+      run: |
+        if [ -f pyproject.toml ] && grep -q "mypy" pyproject.toml; then
+          pip install mypy
+          mypy src/ --ignore-missing-imports || true
+        fi
+    
+    - name: Test with pytest
+      run: |
+        export TESTING=true
+        export DATABASE_PATH=data/01_raw/kmb_data.db
+        pytest tests/ --cov=src/yuutraffic --cov-report=xml --cov-report=html --tb=short -v
+    
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v5
+      if: always()
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: yuutraffic-coverage
+        fail_ci_if_error: false
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    # Staging deploy on develop needs artifacts; production release uses main
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+    
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install build
+    
+    - name: Build package
+      run: |
+        python -m build
+    
+    - name: Create deployment package
+      run: |
+        mkdir -p dist/yuutraffic
+        
+        # Copy main application files
+        cp -r src/yuutraffic/* dist/yuutraffic/
+        cp app.py dist/
+        cp -r conf/ dist/
+        cp -r data/ dist/ 2>/dev/null || mkdir -p dist/data/01_raw
+        
+        # Copy configuration and documentation
+        cp requirements.txt dist/
+        cp README.md dist/
+        cp pyproject.toml dist/
+        
+        # Create startup script
+        cat > dist/start_yuutraffic.sh << 'EOF'
+        #!/bin/bash
+        echo "Starting YuuTraffic..."
+        yuutraffic
+        EOF
+        chmod +x dist/start_yuutraffic.sh
+        
+        # Create Docker files
+        cat > dist/Dockerfile << 'EOF'
+        FROM python:3.8-slim
+        
+        WORKDIR /app
+        
+        RUN apt-get update && apt-get install -y \
+            sqlite3 \
+            && rm -rf /var/lib/apt/lists/*
+        
+        COPY requirements.txt .
+        RUN pip install --no-cache-dir -r requirements.txt
+        
+        COPY . .
+        RUN pip install -e .
+        
+        EXPOSE 8508
+        
+        CMD ["yuutraffic"]
+        EOF
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: yuutraffic-app
+        path: dist/
+        retention-days: 30
+
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+    
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install security tools
+      run: |
+        pip install safety bandit
+    
+    - name: Check for known vulnerabilities
+      run: |
+        safety check --json || true
+    
+    - name: Security linting with Bandit
+      run: |
+        bandit -r src/ -f json || true
+
+  deploy-staging:
+    needs: [build, security-scan]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    
+    steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v8
+      with:
+        name: yuutraffic-app
+        path: dist/
+    
+    - name: Deploy to staging
+      run: |
+        echo "Deploying YuuTraffic staging..."
+        echo "Staging URL: https://traffic-eta-staging.streamlit.app"
+
+  deploy-production:
+    needs: [build, security-scan]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v8
+      with:
+        name: yuutraffic-app
+        path: dist/
+    
+    - name: Deploy to production
+      env:
+        STREAMLIT_SHARING_TOKEN: ${{ secrets.STREAMLIT_SHARING_TOKEN }}
+      run: |
+        echo "Deploying YuuTraffic production (KMB / CityBus)..."
+        echo "Production URL: https://traffic-eta.streamlit.app"
+    
+    - name: Create GitHub Release
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG="v${{ github.run_number }}"
+        if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+          echo "Release $TAG already exists, skipping create."
+        else
+          gh release create "$TAG" \
+            --title "YuuTraffic v1.0 — KMB / CityBus (build ${{ github.run_number }})" \
+            --notes "## YuuTraffic v1.0 — KMB / CityBus — release ${{ github.run_number }}
+        
+        ### 🚌 Features
+        - Hong Kong KMB (and CityBus where applicable) route coverage
+        - Dual direction search with depot names
+        - Route type classification (Express, Night, Circular, etc.)
+        - Interactive maps with OSM routing
+        - Auto-zoom and center controls
+        - Enhanced search and filtering
+        
+        ### 🔧 Technical
+        - Streamlit app + SQLite / precompute pipeline
+        - Parameter-driven configuration
+        - First-run setup and scheduled updates
+        
+        ### 📊 Coverage
+        - Broad KMB route coverage; maps and ETAs from live APIs where available" \
+            --repo "${{ github.repository }}"
+        fi
+
+  notification:
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: always()
+    
+    steps:
+    - name: Notify deployment status
+      run: |
+        if [ "${{ needs.deploy-production.result }}" == "success" ]; then
+          echo "✅ YuuTraffic (KMB / CityBus) production job finished successfully"
+        else
+          echo "❌ YuuTraffic production deployment job failed or was skipped"
+        fi

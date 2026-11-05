@@ -1,0 +1,184 @@
+# Traffic ETA Configuration Parameters
+
+# Application Settings
+app:
+  name: "Traffic ETA"
+  version: "1.0.0"
+  port: 8508
+  host: "localhost"
+  debug: false
+
+# API Endpoints and Links
+api:
+  kmb_base_url: "https://data.etabus.gov.hk/v1/transport/kmb"
+  citybus_base_url: "https://rt.data.gov.hk/v2/transport/citybus"
+  gmb_base_url: "https://data.etagmb.gov.hk"
+  mtr_bus_schedule_url: "https://rt.data.gov.hk/v1/transport/mtr/bus/getSchedule"
+  mtr_next_train_url: "https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php"
+  mtr_light_rail_schedule_url: "https://rt.data.gov.hk/v1/transport/mtr/lrt/getSchedule"
+  mtr_light_rail_routes_stops_url: "https://opendata.mtr.com.hk/data/light_rail_routes_and_stops.csv"
+  mtr_lines_stations_url: "https://opendata.mtr.com.hk/data/mtr_lines_and_stations.csv"
+  mtr_indoor_map_base_url: "https://mapapi.hkmapservice.gov.hk/ogc/wfs/indoor"
+  # OpenStreetMap Nominatim (geocoding). Use a descriptive User-Agent per https://operations.osmfoundation.org/policies/nominatim/
+  nominatim_search_url: "https://nominatim.openstreetmap.org/search"
+  # driving = buses follow roads (walking used pedestrian paths, wrong for Choi Hung–Diamond Hill etc.)
+  osm_routing_url: "http://router.project-osrm.org/route/v1/driving"
+  endpoints:
+    routes: "/route"
+    stops: "/stop"
+    route_stops: "/route-stop"
+    eta: "/eta"
+  timeout: 30
+  max_retries: 3
+
+# Database Configuration
+database:
+  path: "data/01_raw/kmb_data.db"
+  backup_path: "data/02_backup"
+  connection_timeout: 30
+  enable_foreign_keys: true
+
+# Precomputed route geometry: per-route JSON files (editable, no recompute)
+# Run "yuutraffic --update" to build. Each file: stops metadata + OSM coords.
+route_geometry_dir: "data/02_intermediate/route_geometry"
+# Legacy single-file cache (fallback if dir not used)
+route_geometry_cache: "data/02_intermediate/route_geometry_cache.json"
+
+# Scheduling Configuration
+schedule:
+  daily_update:
+    enabled: true
+    time: "02:00"  # 2 AM daily
+    timezone: "Asia/Hong_Kong"
+  first_run_setup: true
+  update_routes: true
+  update_stops: true
+  update_route_stops: true
+
+# Map Configuration
+# tiles: "OpenStreetMap" | "CartoDB positron" (faster) | "CartoDB dark_matter"
+# tiles_url: set to use local tiles, e.g. "http://localhost:8000/{z}/{x}/{y}.png"
+#   Run: python -m http.server 8000 --directory data/tiles  (after downloading HK tiles)
+map:
+  center:
+    lat: 22.3193
+    lng: 114.1694
+  default_zoom: 11
+  auto_zoom:
+    enabled: true
+    route_zoom: 14
+    stop_zoom: 16
+  tiles: "OpenStreetMap"  # Colorful; use "CartoDB positron" for faster/lighter
+  # tiles_url: "http://localhost:8000/{z}/{x}/{y}.png"  # Uncomment for local tiles (run scripts/download_hk_tiles.py first)
+  width: 1200
+  height: 600
+
+# OSM Routing Configuration - routes follow actual streets (walking profile avoids highway detours)
+osm:
+  use_osm_routing: true  # Follow roads; false = straight lines between stops
+  max_waypoints: 15
+  timeout: 10  # Lower timeout for precompute; OSRM public server can be slow
+  fallback_to_direct: true
+  retry_attempts: 2
+  segment_size: 15  # Fewer waypoints = faster OSRM response
+
+# Route Types Configuration
+route_types:
+  circular: ["CIRCULAR", "(CIRCULAR)", "CIRCLE"]
+  special: ["X", "S", "P", "A", "E", "N", "R"]
+  express: ["X"]
+  night: ["N"] 
+  peak: ["P"]
+  airport: ["A", "E"]
+  special_service: ["S", "R"]
+
+# Trip planner: straight-line radius ≈ walk_minutes at walking_speed_kmh; cap IDs for routing cost
+trip_planner:
+  walk_minutes: 15
+  walking_speed_kmh: 5
+  max_catchment_stop_ids: 400
+  max_transfers: 3
+  top_results: 5
+  max_direct_results: 3
+  # Dijkstra routing: cost = bus_hops + routing_transfer_penalty * (number of interchanges)
+  routing_transfer_penalty: 8
+  routing_cost_slack: 4
+  routing_max_alternatives: 80
+  # ETA (rough): bus from path length, walk from km, fixed minutes per transfer
+  avg_bus_speed_kmh: 17
+  minutes_per_transfer: 4
+  fallback_minutes_per_bus_hop: 2.4
+  # Show options no slower than min(best * ratio, best + extra_minutes); then cap at top_results
+  results_max_extra_minutes_vs_best: 22
+  results_max_ratio_vs_best: 1.38
+
+# MTR-family routing and layout configuration
+mtr:
+  routing_transfer_penalty: 4.0
+  light_rail_transfer_penalty: 3.0
+  # Heuristic journey time (minutes) for MTR railway trips (not live ETA)
+  rail_minutes_per_stop: 2.5
+  walk_leg_minutes: 5.0
+  interchange_minutes: 3.0
+
+# Search Configuration
+search:
+  show_both_directions: true
+  max_results: 100
+  case_sensitive: false
+  highlight_matches: true
+
+# Caching Configuration
+cache:
+  ttl: 3600  # 1 hour
+  enable_route_cache: true
+  enable_map_cache: true
+  cache_size_limit: 1000
+
+# ETA refresh (KMB API updates every 1 minute per data.gov.hk)
+eta:
+  refresh_interval_seconds: 60
+
+# UI Configuration
+ui:
+  theme_adaptive: true
+  show_progress_bars: true
+  enable_stop_highlighting: true
+  show_direction_badges: true
+  responsive_design: true
+
+# Performance Configuration
+performance:
+  max_concurrent_requests: 10
+  batch_size: 100
+  enable_compression: true
+  lazy_loading: true
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  file: "logs/yuutraffic.log"
+  max_size: "10MB"
+  backup_count: 5
+
+# Data Update Configuration
+data_update:
+  batch_size: 1000
+  progress_reporting: true
+  verify_data_integrity: true
+  cleanup_old_data: true
+  # --update skips API + geometry when row counts look like a full import (see catalog_min_*).
+  # Set false to always run a full download + map geometry on every --update.
+  skip_transport_api_if_catalog_complete: true
+  catalog_min_routes: 500
+  catalog_min_stops: 500
+  catalog_min_route_stops: 5000
+  # Live vs DB check POSTs every MTR candidate route; set false to only compare KMB/CTB/GMB + red minibus JSON.
+  catalog_compare_mtr: true
+
+# GitHub Actions CI/CD Configuration
+ci_cd:
+  python_version: "3.8"
+  test_database: "tests/test_data.db"
+  enable_coverage: true
+  coverage_threshold: 80

@@ -1,0 +1,101 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+requires-python = ">=3.10"
+name = "yuutraffic"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = [
+    "streamlit>=1.28.0",
+    "folium>=0.14.0",
+    "streamlit-folium>=0.13.0",
+    "requests>=2.28.0",
+    "pandas>=1.5.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.65.0",
+]
+
+[project.scripts]
+"yuutraffic" = "yuutraffic.__main__:main"
+
+[project.optional-dependencies]
+docs = [
+    "docutils<0.21",
+    "sphinx>=5.3,<7.3",
+    "sphinx_rtd_theme==2.0.0",
+    "nbsphinx==0.8.1",
+    "sphinx-autodoc-typehints==1.20.2",
+    "sphinx_copybutton==0.5.2",
+    "ipykernel>=5.3, <7.0",
+    "Jinja2<3.2.0",
+    "myst-parser>=1.0,<2.1"
+]
+dev = [
+    "pytest-cov~=3.0",
+    "pytest-mock>=1.7.1, <2.0",
+    "pytest~=7.2",
+    "ruff~=0.1.8"
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "yuutraffic.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
+
+[tool.pytest.ini_options]
+addopts = """
+--strict-markers \
+--strict-config \
+-ra"""
+minversion = "6.0"
+testpaths = ["tests"]
+
+[tool.coverage.report]
+fail_under = 0
+show_missing = true
+exclude_lines = ["pragma: no cover", "raise NotImplementedError"]
+
+[tool.black]
+target-version = ["py310"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff]
+line-length = 88
+show-fixes = true
+
+[tool.ruff.lint]
+select = [
+    "F",   # Pyflakes
+    "W",   # pycodestyle
+    "E",   # pycodestyle
+    "I",   # isort
+    "UP",  # pyupgrade
+    "PL",  # Pylint
+    "T201", # Print Statement
+]
+ignore = [
+    "E501",    # Ruff format handles line length
+    "PLC0415", # Lazy/local imports (CLI entrypoints, optional deps)
+    "PLR2004", # Magic values in domain logic
+    "PLR0912", # Too many branches (launcher)
+    "PLR0915", # Too many statements (launcher, precompute)
+    "PLR0913", # Too many arguments (domain / UI helpers)
+    "PLR0911", # Too many return statements (geometry / routing)
+    "PLW2901", # Loop variable reassignment (parsed rows)
+    "PLW0603", # Module-level cache globals (MTR overrides)
+    "E741",    # Short names O/D in set algebra (journey routing)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"pages/**/*.py" = ["E402"]  # sys.path before imports (Streamlit multipage)
+"tests/test_app.py" = ["F401"]  # import smoke test
+"src/yuutraffic/__main__.py" = ["T201"]  # CLI may print user-facing messages
+
+[tool.isort]
+profile = "black"

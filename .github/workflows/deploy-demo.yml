@@ -1,0 +1,72 @@
+name: Deploy demo site (frontend)
+
+# This workflow only handles **frontend-only** updates (HTML/CSS/JS).
+# Transport data refresh happens locally via scripts/publish.sh — see README.
+# The full yuutraffic --update is too slow from non-HK GitHub runners,
+# so nothing scheduled runs here.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - "web/index.html"
+      - "web/app.js"
+      - "web/style.css"
+      - ".github/workflows/deploy-demo.yml"
+
+concurrency:
+  group: deploy-demo
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if gh-pages is seeded
+        id: check
+        shell: bash
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::gh-pages branch not created yet — run ./scripts/publish.sh locally to seed it. Skipping redeploy."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch existing gh-pages data
+        if: steps.check.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -e
+          git fetch origin gh-pages:gh-pages
+          git worktree add /tmp/gh-pages gh-pages
+          mkdir -p web/data
+          if [[ -d /tmp/gh-pages/data ]]; then
+            cp -a /tmp/gh-pages/data/. web/data/
+            echo "Reused $(ls web/data | wc -l) data items from gh-pages."
+          fi
+
+      - name: Cache-bust asset URLs
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          VER="$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA:0:8}"
+          sed -i "s/__ASSET_VER__/${VER}/g" web/index.html
+          echo "asset version: ${VER}"
+
+      - name: Publish to gh-pages
+        if: steps.check.outputs.ready == 'true'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./web
+          publish_branch: gh-pages
+          keep_files: false
+          commit_message: "deploy: frontend ${{ github.sha }}"
